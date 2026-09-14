@@ -1,0 +1,14 @@
+# 环境变量文件(含密钥，禁止提交)
+.env
+
+# 旧版/临时目录(不参与版本管理)
+del/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 虚拟环境
+.venv/
+venv/
