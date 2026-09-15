@@ -12,7 +12,6 @@ def database(tmp_path):
     db.initialize()
     return db
 
-
 def test_run_round_trip(database, ):
     conversation = Conversation(
         id = new_id("conv"),

@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 
 from app_tools.demo_tools import delete_file_tool, sleep_tool 
 from app_tools.calculator import calculator_tool , subtract_tool, multiply_tool, divide_tool
+from app_tools.knowledge import build_search_knowledge_tool
 
 from harness.providers.openai_provider import OpenAIProvider
 from harness.providers.deepseek_provider import DeepSeekProvider
@@ -13,6 +14,7 @@ from harness.tools.definition import ToolContext
 from harness.tools.executor import ToolExecutor
 from harness.tools.registry import ToolRegistry
 from harness.tools.middleware import LoggingMiddleware
+
 
 load_dotenv()
 
@@ -28,6 +30,12 @@ async def main() -> None:
     registry.register(multiply_tool)
     registry.register(divide_tool)
     
+    knowledge_tool = build_search_knowledge_tool(
+        pipeline=pipeline,
+        projector=projector,
+        tenant_id="tenant-001",
+    )
+    registry.register(knowledge_tool)
 
     # 2. 创建工具执行器(挂载日志中间件)
     executor = ToolExecutor(

@@ -12,3 +12,7 @@ __pycache__/
 # 虚拟环境
 .venv/
 venv/
+
+# 数据目录
+data/
+data

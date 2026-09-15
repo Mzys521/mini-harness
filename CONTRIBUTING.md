@@ -8,20 +8,20 @@
 - 安装依赖：
 
 ```bash
-pip install openai pydantic python-dotenv pytest pytest-asyncio
+pip install openai pydantic python-dotenv chromadb pytest pytest-asyncio
 ```
 
 - 参考 README 的「快速开始」配置 `.env`
 - 运行测试，确认环境就绪：
 
 ```bash
-python -m pytest test -q
+python -m pytest tests -q
 ```
 
 ## 工作流程
 
 1. Fork 本仓库并克隆到本地
-2. 从 `master` 拉出功能分支，命名建议：`feat/phase5-rag-loader`、`fix/tool-timeout`、`docs/update-readme` 等
+2. 从 `master` 拉出功能分支，命名建议：`feat/phase6-mcp-client`、`fix/tool-timeout`、`docs/update-readme` 等
 3. 开发完成后，确保测试全部通过
 4. 使用 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 规范提交：
 
@@ -49,7 +49,7 @@ python -m pytest test -q
 
 - 遵循仓库现有风格：类型标注、frozen dataclass、简洁中文注释
 - 新工具请放入 `app_tools/` 或对应阶段模块，并补充参数模型（Pydantic）
-- 测试放在 `test/` 下，文件命名 `test_*.py`
+- 测试放在 `tests/` 下，文件命名 `test_*.py`
 - 不要提交 `.env`、`del/` 及任何缓存文件（已在 `.gitignore` 中排除）
 
 ## 反馈问题

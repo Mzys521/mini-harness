@@ -38,7 +38,6 @@ def test_current_input_is_kept():
     assert any(
         x.content == "important request" for x in context.messages
     )
-    
 
 # 测试历史记录是否被截断
 def test_history_limit():
@@ -66,7 +65,6 @@ def test_history_limit():
 
     assert "message-19" in contents
     assert "message-0" not in contents
-
 
 # 测试上下文是否遵守预算
 def test_context_respects_budget():

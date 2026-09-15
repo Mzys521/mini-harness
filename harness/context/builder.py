@@ -26,12 +26,13 @@ class ContextBuilder:
         self.token_counter = token_counter    # Token 计数器
         self.policy = policy    # 上下文策略
         
-    def build(self, * , system_instruction: list[Message] , history: list[Message] , current_user_input:  str , working_state: WorkingState | None = None) -> ModelContext:
+    def build(self, * , system_instruction: list[Message] , history: list[Message] , current_user_input:  str , working_state: WorkingState | None = None , retrieved_context: str | None = None) -> ModelContext:
         """组装一份模型上下文。
         参数 system_instruction: 系统指令(最高优先级，必保留)
         参数 history: 历史消息列表(按策略截取最近部分)
         参数 current_user_input: 当前用户输入(必保留)
         参数 working_state: 可选工作状态，按 policy 决定是否注入
+        参数 retrieved_context: 可选检索结果，按 policy 决定是否注入
         返回: ModelContext(含估算 token 与已丢弃片段)
         """
 
@@ -64,6 +65,20 @@ class ContextBuilder:
                     },
                 )
             )
+
+
+        if retrieved_context:
+            messages.append(
+                Message(
+                    role=MessageRole.SYSTEM,
+                    content=("[RETRIEVED CONTEXT]\n" + retrieved_context),
+                    metadata={
+                        "section" : "retrieved_context",
+                        "priority" : 75,
+                        "source" : "rag",
+                    },
+                )
+            )    
 
         # todo(替换SlidingWindows)
         # 先使用 Sliding Window
