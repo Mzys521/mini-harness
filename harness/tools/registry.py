@@ -13,7 +13,7 @@ class ToolRegistry:
         参数 tool: 工具定义；名称重复时抛 ValueError
         """
         if tool.name in self._tools:
-            raise ValueError(f"Tool {tool.name} 已经注册")
+            raise ValueError(f"tool already registered: {tool.name}")
         self._tools[tool.name] = tool
 
     def get(self , name: str) -> Tool:
@@ -30,7 +30,7 @@ class ToolRegistry:
         """返回全部已注册的工具列表"""
         return list(self._tools.values())
 
-    def openai_schema(self) -> list[dict]:
+    def openai_schemas(self) -> list[dict]:
         """返回全部工具的 OpenAI schema 列表(用于发送给模型)"""
         return [tool.to_openai_schema() for tool in self._tools.values()]
 

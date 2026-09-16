@@ -1,8 +1,8 @@
-from harness.retrieval.models import RetrievalResult
+# from harness.retrieval.models import RetrievalResult
 
 class RetrievalContextProjector:
     """检索结果的投影器"""
-    def project(self , result:  list[RetrievalResult]) ->str:
+    def project(self , result: list) ->str:
         sections : list[str] = []
         for item in result:
             source =  item.chunk.metadata.get("source" , "unknown") 

@@ -2,9 +2,10 @@ import pytest
 from pydantic import BaseModel,ConfigDict
 
 from harness.models import ToolCall
-from harness.tools.definition import Tool , ToolContext
+from harness.tools.definition import ToolContext
 from harness.tools.executor import ToolExecutor
 from harness.tools.registry import ToolRegistry
+from harness.tools.factory import tool_from_pydantic
 from harness.tools.result import ToolStatus
 
 
@@ -22,7 +23,7 @@ def add(a : float , b : float) -> float:
 async def test_tool_success():
     """正常调用应返回 SUCCESS，且 data 为计算结果。"""
     registry = ToolRegistry()
-    registry.register(Tool(
+    registry.register(tool_from_pydantic(
         name="add",
         description="add",
         args_model=AddArgs,
@@ -43,7 +44,7 @@ async def test_tool_success():
 async def test_invalid_arguments():
     """传入多余字段(extra=forbid)应返回 INVALID_ARGUMENTS。"""
     registry = ToolRegistry()
-    registry.register(Tool(
+    registry.register(tool_from_pydantic(
         name="add",
         description="add",
         args_model=AddArgs,
@@ -77,7 +78,7 @@ async def slow(seconds: float):
 async def test_timeout():
     """handler 耗时超过 timeout_seconds 应返回 TIMEOUT。"""
     registry = ToolRegistry()
-    registry.register(Tool(
+    registry.register(tool_from_pydantic(
         name="slow",
         description="slow",
         args_model=SleepArgs,
@@ -97,7 +98,7 @@ async def test_timeout():
 async def test_permission_denied():
     """上下文权限不足时应返回 PERMISSION_DENIED。"""
     registry = ToolRegistry()
-    registry.register(Tool(
+    registry.register(tool_from_pydantic(
         name="dangerous",
         description="dangerous",
         args_model=AddArgs,
@@ -133,7 +134,7 @@ async def test_retry():
         return "ok"
 
     registry = ToolRegistry()
-    registry.register(Tool(
+    registry.register(tool_from_pydantic(
         name="flaky",
         description="flaky",
         args_model=EmptyArgs,

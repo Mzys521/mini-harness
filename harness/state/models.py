@@ -12,6 +12,14 @@ class RunState(StrEnum):
     FAILED = "failed"    # 已失败
     CANCELLED = "cancelled"    # 已取消
 
+class RunStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    
+
 class StepState(StrEnum):
     """单个步骤(Step)的状态"""
     PENDING = "pending"    # 待执行
@@ -45,6 +53,7 @@ class Run:
     conversation_id: str    # 所属会话ID
     status: RunState = RunState.PENDING    # 运行状态
     current_step: int = 0    # 当前步骤序号
+    provider_response_id: str | None = None
     error_message: str | None = None    # 失败原因
     created_at: datetime = field(default_factory=utc_now)    # 创建时间
     updated_at: datetime = field(default_factory=utc_now)    # 更新时间

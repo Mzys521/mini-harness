@@ -18,3 +18,11 @@ class ModelResult:
     tool_calls: list[ToolCall] = field(default_factory=list)    # 模型请求的工具调用列表(可能为空)
     response_id : str | None = None    # 响应ID，用于下一轮请求续接上下文
 
+@dataclass
+class RunResult:
+    """模型运行结果"""
+    output: str
+    steps: int
+    response_id: str | None = None
+
+

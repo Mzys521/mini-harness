@@ -17,12 +17,16 @@ class DenseRetriever:
             where=where
         )
 
+class NoOpReranker:
+    def rerank(self , * , query: str , candidates: list , top_k: int) -> list[RetrievalResult]:
+        return candidates[:top_k]
+
 class RetrievalPipeline:
-    def __init__(self , * , retriever, reranker) -> None:
+    def __init__(self , * , retriever, reranker = None) -> None:
         self.retriever = retriever
-        self.reranker = reranker
+        self.reranker = reranker or NoOpReranker()
     
-    def search(self , query: str , * , candidate_k: int = 20 , final_k: int = 5 , where : dict | None = None) -> list[RetrievalResult]:
+    def search(self , query: str , * , candidate_k: int = 12 , final_k: int = 5 , where : dict | None = None) -> list[RetrievalResult]:
         candidates = self.retriever.retrieve(query, top_k=candidate_k, where=where)
         return self.reranker.rerank(query=query, candidates=candidates, top_k=final_k)
 

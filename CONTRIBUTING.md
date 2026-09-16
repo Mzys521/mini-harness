@@ -5,10 +5,10 @@
 ## 开发环境
 
 - Python 3.12+
-- 安装依赖：
+- 安装依赖（含开发依赖）：
 
 ```bash
-pip install openai pydantic python-dotenv chromadb pytest pytest-asyncio
+pip install -e ".[dev]"
 ```
 
 - 参考 README 的「快速开始」配置 `.env`
@@ -21,7 +21,7 @@ python -m pytest tests -q
 ## 工作流程
 
 1. Fork 本仓库并克隆到本地
-2. 从 `master` 拉出功能分支，命名建议：`feat/phase6-mcp-client`、`fix/tool-timeout`、`docs/update-readme` 等
+2. 从 `main` 拉出功能分支，命名建议：`feat/phase7-observability`、`fix/tool-timeout`、`docs/update-readme` 等
 3. 开发完成后，确保测试全部通过
 4. 使用 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 规范提交：
 
@@ -48,9 +48,9 @@ python -m pytest tests -q
 ## 代码风格
 
 - 遵循仓库现有风格：类型标注、frozen dataclass、简洁中文注释
-- 新工具请放入 `app_tools/` 或对应阶段模块，并补充参数模型（Pydantic）
+- 本地工具请放入 `app_tools/`，用 `tool_from_pydantic` 工厂构建（Pydantic 参数模型 → JSON Schema）
 - 测试放在 `tests/` 下，文件命名 `test_*.py`
-- 不要提交 `.env`、`del/` 及任何缓存文件（已在 `.gitignore` 中排除）
+- 不要提交 `.env`、`data/`、`del/` 及任何缓存文件（已在 `.gitignore` 中排除）
 
 ## 反馈问题
 

@@ -37,8 +37,15 @@ class ContextSection:
 @dataclass(frozen=True)
 class ModelContext:
     """构建完成、即将发送给模型的上下文"""
-    messages: list[Message]    # 最终消息列表
-    estimated_tokens: int    # 估算的 token 总数
-    dropped_sections: list[str]    # 被裁剪丢弃的片段名
+    instructions: str    # 指令
+    user_input: str    # 用户输入
+
+# 在 0.6.0 版本中弃用
+# @dataclass(frozen=True)
+# class ModelContext:11                                                                                         ~~~ 
+#     """构建完成、即将发送给模型的上下文"""
+#     messages: list[Message]    # 最终消息列表
+#     estimated_tokens: int    # 估算的 token 总数
+#     dropped_sections: list[str]    # 被裁剪丢弃的片段名
 
 

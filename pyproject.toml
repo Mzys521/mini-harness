@@ -1,0 +1,12 @@
+[project]
+name = "mini-harness"
+version = "0.6.0"
+requires-python = ">=3.12"
+dependencies = ["openai", "pydantic>=2", "python-dotenv", "jsonschema", "chromadb", "mcp[cli]>=2,<3"]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["del"]

@@ -2,8 +2,10 @@
 # 使用 typing.Protocol 声明"结构化"接口——实现类无需显式继承，
 # 只要方法签名一致，即可作为对应仓储的实现（如后续的 SQLite 实现）。
 
+import json
+
 from typing import Protocol
-from datetime import datetime
+from datetime import UTC, datetime
 
 from harness.state.models import (
     Run,
@@ -253,69 +255,104 @@ class SQLiteMessageRepository:
         """参数 connection: 已开启事务的 sqlite3 连接"""
         self.connection = connection
 
-    def add(self , * , message_id: str , conversation_id: str , message: Message , created_at ,) -> None:
-        """保存一条消息。
-        参数 message_id: 消息ID / conversation_id: 所属会话ID / message: 消息对象 / created_at: 创建时间
-        """
+    def add_user(self , * , conversation_id: str , content: str) -> None:
+        self._add(
+            conversation_id=conversation_id,
+            content=content,
+            role=MessageRole.USER,
+        )
+    
+    def add_assistant(self , * , conversation_id: str , content: str) -> None:
+        self._add(
+            conversation_id=conversation_id,
+            content=content,
+            role=MessageRole.ASSISTANT,
+        )
+    
+    def _add(self, *, conversation_id: str, role: str, content: str) -> None:
+        from harness.state.ids import new_id
+
         self.connection.execute(
             """
             INSERT INTO messages (
-                id,
+                id, conversation_id, role, content, metadata_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                new_id("msg"),
                 conversation_id,
                 role,
                 content,
-                metadata_json,
-                created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                message_id,
-                conversation_id,
-                message.role.value,
-                message.content,
-                dump_json(
-                    message.metadata
-                ),
-                created_at.isoformat(),
+                json.dumps({}, ensure_ascii=False),
+                datetime.now(UTC).isoformat(),
             ),
         )
-    
-    def list_recent(self, * , conversation_id: str , limit: int ,) -> list[Message]:
-        """取会话最近 limit 条消息(最终按时间升序返回)。
-        参数 conversation_id: 会话ID / limit: 条数
-        返回: Message 列表
-        """
-        rows = self.connection.execute(
-            """
-            SELECT *
-            FROM (
-                SELECT *
-                FROM messages
-                WHERE conversation_id = ?
-                ORDER BY created_at DESC
-                LIMIT ?
-            )
-            ORDER BY created_at ASC
-            """,
-            (
-                conversation_id,
-                limit,
-            ),
-        ).fetchall()
 
-        return [
-            Message(
-                role=MessageRole(
-                    row["role"]
-                ),
-                content=row["content"],
-                metadata=load_json(
-                    row["metadata_json"]
-                ),
-            )
-            for row in rows
-        ]
+    # 已于 0.6.0 版本中弃用
+    # --------------------------------------------------------------------------------
+    # def add(self , * , message_id: str , conversation_id: str , message: Message , created_at ,) -> None:
+    #     """保存一条消息。
+    #     参数 message_id: 消息ID / conversation_id: 所属会话ID / message: 消息对象 / created_at: 创建时间
+    #     """
+    #     self.connection.execute(
+    #         """
+    #         INSERT INTO messages (
+    #             id,
+    #             conversation_id,
+    #             role,
+    #             content,
+    #             metadata_json,
+    #             created_at
+    #         )
+    #         VALUES (?, ?, ?, ?, ?, ?)
+    #         """,
+    #         (
+    #             message_id,
+    #             conversation_id,
+    #             message.role.value,
+    #             message.content,
+    #             dump_json(
+    #                 message.metadata
+    #             ),
+    #             created_at.isoformat(),
+    #         ),
+    #     )
+    
+    # def list_recent(self, * , conversation_id: str , limit: int ,) -> list[Message]:
+    #     """取会话最近 limit 条消息(最终按时间升序返回)。
+    #     参数 conversation_id: 会话ID / limit: 条数
+    #     返回: Message 列表
+    #     """
+    #     rows = self.connection.execute(
+    #         """
+    #         SELECT *
+    #         FROM (
+    #             SELECT *
+    #             FROM messages
+    #             WHERE conversation_id = ?
+    #             ORDER BY created_at DESC
+    #             LIMIT ?
+    #         )
+    #         ORDER BY created_at ASC
+    #         """,
+    #         (
+    #             conversation_id,
+    #             limit,
+    #         ),
+    #     ).fetchall()
+
+    #     return [
+    #         Message(
+    #             role=MessageRole(
+    #                 row["role"]
+    #             ),
+    #             content=row["content"],
+    #             metadata=load_json(
+    #                 row["metadata_json"]
+    #             ),
+    #         )
+    #         for row in rows
+    #     ]
 
 class SQLiteConversationRepository:
     """会话的 SQLite 实现"""

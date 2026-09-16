@@ -13,6 +13,10 @@ class Database:
         """参数 path: SQLite 数据库文件路径"""
         self.path = path
 
+    def uow(self) :
+        from harness.persistence.unit_of_work import UnitOfWork
+        return UnitOfWork(self)
+
 
     # 创建数据库连接 SQLite3
     def connect(self) -> sqlite3.Connection:

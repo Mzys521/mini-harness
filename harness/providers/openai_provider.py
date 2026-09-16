@@ -14,28 +14,30 @@ class OpenAIProvider:
         """
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
-
-    # 转换为 OpenAI 输入
-    def _to_provider_input(context: ModelContext ,) -> list[dict]:
-        """把 ModelContext 转成模型输入列表。
-        参数 context: 已构建的模型上下文
-        返回: [{"role","content","name"}, ...] 列表
-        注意: 缺少 self 参数，且 Message 无 name 字段，当前未被调用
-        """
-        return [
-            {
-                "role": message.role.value,
-                "content": message.content,
-                "name": message.name,
-            }
-            for message in context.messages
-        ]
+        
+    # 已经在 0.5.0 版本中弃用
+    # # 转换为 OpenAI 输入
+    # def _to_provider_input(context: ModelContext ,) -> list[dict]:
+    #     """把 ModelContext 转成模型输入列表。
+    #     参数 context: 已构建的模型上下文
+    #     返回: [{"role","content","name"}, ...] 列表
+    #     注意: 缺少 self 参数，且 Message 无 name 字段，当前未被调用
+    #     """
+    #     return [
+    #         {
+    #             "role": message.role.value,
+    #             "content": message.content,
+    #             "name": message.name,
+    #         }
+    #         for message in context.messages
+    #     ]
     
     # 发送模型请求
-    def generate(self, * ,input_data , tools : list[dict] , previous_response_id: str | None = None) -> ModelResult:
+    async def generate(self, * ,input_data , tools : list[dict] ,instructions: str | None = None , previous_response_id: str | None = None) -> ModelResult:
         """调用模型生成一轮结果(同步)。
         参数 input_data: 输入内容(字符串或工具结果列表，直接透传)
         参数 tools: 工具 schema 列表
+        参数 instructions: 指令(服务端自动续接)
         参数 previous_response_id: 上一轮响应ID(服务端自动续接)
         返回: ModelResult(文本 + 工具调用 + 响应ID)
         """
@@ -44,6 +46,7 @@ class OpenAIProvider:
             model=self.model,
             input=input_data,
             tools=tools,
+            instructions=instructions,
             previous_response_id=previous_response_id
         )
 

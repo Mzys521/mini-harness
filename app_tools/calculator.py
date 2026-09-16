@@ -1,5 +1,5 @@
-from harness.tools.definition import Tool
 from pydantic import BaseModel , ConfigDict
+from harness.tools.factory import tool_from_pydantic
 
 class AddArgs(BaseModel):
     """add 工具入参: 两个加数(禁止额外字段)"""
@@ -52,7 +52,7 @@ def divide(a : float , b : float) -> float:
     return a / b
 
 # 加法工具定义(供注册表注册)
-calculator_tool = Tool(
+calculator_tool = tool_from_pydantic(
     name="add",
     description = "计算两个数字加法",
     args_model=AddArgs,
@@ -61,7 +61,7 @@ calculator_tool = Tool(
 )
 
 # 减法工具定义
-subtract_tool = Tool(
+subtract_tool = tool_from_pydantic(
     name="subtract",
     description = "计算两个数字减法",
     args_model=SubtractArgs,
@@ -70,7 +70,7 @@ subtract_tool = Tool(
 )
 
 # 乘法工具定义
-multiply_tool = Tool(
+multiply_tool = tool_from_pydantic(
     name="multiply",
     description = "计算两个数字乘法",
     args_model=MultiplyArgs,
@@ -79,10 +79,17 @@ multiply_tool = Tool(
 )
 
 # 除法工具定义
-divide_tool = Tool(
+divide_tool = tool_from_pydantic(
     name="divide",
     description = "计算两个数字除法",
     args_model=DivideArgs,
     handler=divide,
     timeout_seconds = 2.0,
 )
+
+tool_list = [
+    calculator_tool,
+    subtract_tool,
+    multiply_tool,
+    divide_tool,
+]
