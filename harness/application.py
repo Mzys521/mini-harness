@@ -2,10 +2,13 @@ import logging
 
 from time import perf_counter
 from harness.context.models import WorkingState
+from harness.models import RunEvidence
 from harness.state.ids import new_id
-from harness.state.models import Conversation, Run, RunStatus, utc_now
+from harness.state.models import Conversation, Run, RunStatus, utc_now ,RunState , Checkpoint
 from harness.tools.definition import ToolContext
-from dataclasses import dataclass
+from dataclasses import dataclass , field , asdict
+
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ApplicationResult:
@@ -13,6 +16,7 @@ class ApplicationResult:
     run_id: str
     output: str
     steps: int
+    evidence: RunEvidence = field(default_factory=RunEvidence)
 
 
 class PersistentAgentService:
@@ -32,14 +36,16 @@ class PersistentAgentService:
         user_input: str,
         permissions: frozenset[str],
         conversation_id: str | None = None,
-    ):
+    )-> ApplicationResult:
+
+        started = perf_counter()
+
         if conversation_id is None:
             conversation = Conversation(
                 id=new_id("conv"),
                 user_id=user_id,
                 tenant_id=tenant_id,
             )
-
             history = []
 
             with self.database.uow() as uow:
@@ -62,63 +68,125 @@ class PersistentAgentService:
             conversation_id=conversation.id,
         )
 
-        # 第一次事务：先把“任务已经存在”持久化。
-        with self.database.uow() as uow:
-            uow.runs.add(run)
-            uow.messages.add_user(
-                conversation_id=conversation.id,
-                content=user_input,
-            )
-            uow.commit()
+        working_state = WorkingState(goal=user_input)
 
-        run.status = RunStatus.RUNNING
-        run.updated_at = utc_now()
+        self.metrics.agent_runs.add(1 , {"operation": "ask"})
 
-        with self.database.uow() as uow:
-            uow.runs.update(run)
-            uow.commit()
+        with self.observability.span(
+            "agent.run",
+            {
+                "agent.run_id": run.id,
+            }
+        ) as span:
+            try : 
 
-        try:
-            result = await self.runner.run(
-                user_input,
-                tool_context=ToolContext(
-                    run_id=run.id,
-                    user_id=user_id,
-                    tenant_id=tenant_id,
-                    permissions=permissions,
-                ),
-                working_state=WorkingState(
-                    goal=user_input
-                ),
-                history=history,
-            )
+                # 第一次事务：先把“任务已经存在”持久化。
+                with self.database.uow() as uow:
+                    uow.runs.add(run)
+                    uow.messages.add_user(
+                        conversation_id=conversation.id,
+                        content=user_input,
+                    )
+                    uow.commit()
 
-            run.status = RunStatus.COMPLETED
-            run.provider_response_id = result.response_id
-            run.updated_at = utc_now()
+                run.status = RunStatus.RUNNING
+                run.updated_at = utc_now()
 
-            with self.database.uow() as uow:
-                uow.messages.add_assistant(
-                    conversation_id=conversation.id,
-                    content=result.output,
+                with self.database.uow() as uow:
+                    uow.runs.update(run)
+                    uow.commit()
+
+                result = await self.runner.run(
+                    user_input,
+                    history=history,
+                    tool_context=ToolContext(
+                        run_id=run.id,
+                        user_id=user_id,
+                        tenant_id=tenant_id,
+                        permissions=permissions,
+                    ),
+                    working_state=WorkingState(
+                        goal=user_input
+                    ),
                 )
-                uow.runs.update(run)
-                uow.commit()
 
-            return ApplicationResult(
-                conversation_id=conversation.id,
-                run_id=run.id,
-                output=result.output,
-                steps=result.steps,
-            )
+                run.status = RunStatus.COMPLETED
+                run.provider_response_id = result.response_id
+                run.updated_at = utc_now()
 
-        except Exception as exc:
-            run.status = RunStatus.FAILED
-            run.error_message = str(exc)
-            run.updated_at = utc_now()
+                checkpoint = Checkpoint(
+                    id = new_id("cp"),
+                    run_id = run.id,
+                    step_sequence= result.steps,
+                    state ={
+                        "working_state" : asdict(working_state),
+                        "provider_response_id" : result.response_id,
+                        "final_output" : result.output
+                    },
+                    created_at = utc_now()
+                )
 
-            with self.database.uow() as uow:
-                uow.runs.update(run)
-                uow.commit()
+                with self.database.uow() as uow:
+                    uow.messages.add_assistant(
+                        conversation_id=conversation.id,
+                        content=result.output,
+                    )
+                    uow.runs.update(run)
+                    uow.checkpoints.add(checkpoint)
+                    uow.commit()
+                
+                duration = perf_counter() - started
+                span.set_attribute("agent.steps", result.steps)
+                span.set_attribute("agent.status", "completed")
+                self.metrics.agent_duration.record(
+                    duration,
+                    {"status": "completed"},
+                )
 
-            raise
+                logger.info(
+                    "agent run completed",
+                    extra={
+                        "run_id": run.id,
+                        "conversation_id": conversation.id,
+                        "steps": result.steps,
+                    },
+                )
+
+                return ApplicationResult(
+                    conversation_id=conversation.id,
+                    run_id=run.id,
+                    output=result.output,
+                    steps=result.steps,
+                    evidence=result.evidence,
+                )
+
+            except Exception as exc:
+                run.status = RunStatus.FAILED
+                run.updated_at = utc_now()
+
+                try : 
+                    with self.database.uow() as uow:
+                        uow.runs.update(run)
+                        uow.commit()
+                except Exception :
+                    logger.exception(
+                        "failed to persist run failure",
+                        extra={
+                            "run_id" : run.id
+                        },
+                    )
+                self.metrics.agent_errors.add(
+                    1, 
+                    {"status": "failed"},
+                )
+
+                span.set_attribute("agent.status", "failed")
+
+                logger.exception(
+                    "agent run failed",
+                    extra={
+                        "run_id" : run.id
+                    }
+                )
+
+                raise

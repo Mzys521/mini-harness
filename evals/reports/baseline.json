@@ -1,0 +1,258 @@
+{
+  "suite_name": "smoke",
+  "started_at": "2026-09-18 11:33:56.177903+00:00",
+  "completed_at": "2026-09-18 11:34:01.151984+00:00",
+  "results": [
+    {
+      "case": {
+        "id": "local_add",
+        "input": "请计算 12 + 30，并直接告诉我结果。",
+        "tags": [
+          "tool",
+          "local"
+        ],
+        "expected_answer_contains": [
+          "42"
+        ],
+        "expected_tools": [
+          "add"
+        ],
+        "forbidden_tools": [
+          "demo__multiply"
+        ],
+        "max_steps": 4,
+        "reference_answer": null,
+        "rubric": null,
+        "metadata": {}
+      },
+      "sample": {
+        "case_id": "local_add",
+        "output": "12 + 30 = **42**",
+        "steps": 2,
+        "evidence": {
+          "tool_executions": [
+            {
+              "call_id": "call_00_dZIcCAjPEenBfKuh659c2304",
+              "name": "add",
+              "arguments": {
+                "a": 12,
+                "b": 30
+              },
+              "status": "success",
+              "error_code": null
+            }
+          ],
+          "model_usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "cached_input_tokens": 0
+          }
+        },
+        "run_id": "run-9ffec32bf5ce4fd9801e47b4d1ece6b2"
+      },
+      "scores": [
+        {
+          "evaluator": "answer_contains",
+          "score": 1.0,
+          "passed": true,
+          "reason": "所有必需内容均出现",
+          "details": {
+            "missing": []
+          }
+        },
+        {
+          "evaluator": "required_tool",
+          "score": 1.0,
+          "passed": true,
+          "reason": "所有必需 Tool 均被调用",
+          "details": {
+            "expected": [
+              "add"
+            ],
+            "actual": [
+              "add"
+            ],
+            "missing": []
+          }
+        },
+        {
+          "evaluator": "forbidden_tools",
+          "score": 1.0,
+          "passed": true,
+          "reason": "未使用禁止 Tool",
+          "details": {
+            "forbidden_used": "set()"
+          }
+        },
+        {
+          "evaluator": "max_steps",
+          "score": 1.0,
+          "passed": true,
+          "reason": "steps=2, limit=4",
+          "details": {
+            "steps": 2,
+            "max_steps": 4
+          }
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "mcp_multiply",
+        "input": "请使用远程乘法工具计算 6 * 7。",
+        "tags": [
+          "tool",
+          "mcp"
+        ],
+        "expected_answer_contains": [
+          "42"
+        ],
+        "expected_tools": [
+          "demo__multiply"
+        ],
+        "forbidden_tools": [],
+        "max_steps": 4,
+        "reference_answer": null,
+        "rubric": null,
+        "metadata": {}
+      },
+      "sample": {
+        "case_id": "mcp_multiply",
+        "output": "已使用远程乘法工具计算完成：\n\n**6 × 7 = 42**\n\n（工具 `demo__multiply` 返回结果 `42.0`，调用状态 success。）",
+        "steps": 2,
+        "evidence": {
+          "tool_executions": [
+            {
+              "call_id": "call_00_aUbju6wBvPeXNAtqnpPO1804",
+              "name": "demo__multiply",
+              "arguments": {
+                "a": 6,
+                "b": 7
+              },
+              "status": "success",
+              "error_code": null
+            }
+          ],
+          "model_usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "cached_input_tokens": 0
+          }
+        },
+        "run_id": "run-2a89dd074bd64572a1b614d1cec84c28"
+      },
+      "scores": [
+        {
+          "evaluator": "answer_contains",
+          "score": 1.0,
+          "passed": true,
+          "reason": "所有必需内容均出现",
+          "details": {
+            "missing": []
+          }
+        },
+        {
+          "evaluator": "required_tool",
+          "score": 1.0,
+          "passed": true,
+          "reason": "所有必需 Tool 均被调用",
+          "details": {
+            "expected": [
+              "demo__multiply"
+            ],
+            "actual": [
+              "demo__multiply"
+            ],
+            "missing": []
+          }
+        },
+        {
+          "evaluator": "max_steps",
+          "score": 1.0,
+          "passed": true,
+          "reason": "steps=2, limit=4",
+          "details": {
+            "steps": 2,
+            "max_steps": 4
+          }
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "simple_no_tool",
+        "input": "只回答：你好。不要调用任何工具。",
+        "tags": [
+          "no_tool"
+        ],
+        "expected_answer_contains": [
+          "你好"
+        ],
+        "expected_tools": [],
+        "forbidden_tools": [
+          "add",
+          "demo__multiply",
+          "search_knowledge_base"
+        ],
+        "max_steps": 2,
+        "reference_answer": null,
+        "rubric": null,
+        "metadata": {}
+      },
+      "sample": {
+        "case_id": "simple_no_tool",
+        "output": "你好。",
+        "steps": 1,
+        "evidence": {
+          "tool_executions": [],
+          "model_usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "cached_input_tokens": 0
+          }
+        },
+        "run_id": "run-3f239cfd050645f2b9356daa944dcabf"
+      },
+      "scores": [
+        {
+          "evaluator": "answer_contains",
+          "score": 1.0,
+          "passed": true,
+          "reason": "所有必需内容均出现",
+          "details": {
+            "missing": []
+          }
+        },
+        {
+          "evaluator": "forbidden_tools",
+          "score": 1.0,
+          "passed": true,
+          "reason": "未使用禁止 Tool",
+          "details": {
+            "forbidden_used": "set()"
+          }
+        },
+        {
+          "evaluator": "max_steps",
+          "score": 1.0,
+          "passed": true,
+          "reason": "steps=1, limit=2",
+          "details": {
+            "steps": 1,
+            "max_steps": 2
+          }
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_cases": 3,
+    "passed_cases": 3,
+    "failed_cases": 0,
+    "pass_rate": 1.0,
+    "average_score": 1.0
+  }
+}

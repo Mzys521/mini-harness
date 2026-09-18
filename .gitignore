@@ -16,3 +16,6 @@ venv/
 # 数据目录
 data/
 data
+
+# 评测报告(每次运行的产物；evals/reports/baseline.json 作为回归基线入库)
+evals/reports/latest.json

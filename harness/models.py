@@ -18,6 +18,31 @@ class ModelUsage:
     total_tokens: int = 0
     cached_input_tokens: int = 0
 
+    def __add__(self, other: "ModelUsage") -> "ModelUsage":
+        return ModelUsage(
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+            total_tokens=self.total_tokens + other.total_tokens,
+            cached_input_tokens=self.cached_input_tokens + other.cached_input_tokens,
+        )
+
+@dataclass(frozen=True)
+class ToolExecutionRecord:
+    """Evaluation 需要的最小 Tool Execution Evidence（工具执行证据）。"""
+    call_id: str
+    name: str
+    arguments: dict[str , Any]
+    status: str 
+    error_code : str | None = None
+
+
+@dataclass
+class RunEvidence:
+    """与 OpenTelemetry（开放遥测）解耦的应用级运行事实。"""
+    tool_executions: list[ToolExecutionRecord] = field(default_factory=list)
+    model_usage: ModelUsage = field(default_factory=ModelUsage)
+
+
 # 模型结果  
 @dataclass
 class ModelResult:
@@ -33,5 +58,6 @@ class RunResult:
     output: str
     steps: int
     response_id: str | None = None
+    evidence: RunEvidence = field(default_factory=RunEvidence)
 
 

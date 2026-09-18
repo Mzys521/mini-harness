@@ -4,8 +4,8 @@
 
 ![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-v0.7.0-purple)
-![Status](https://img.shields.io/badge/Status-Phase%207%20%28Observability%29%20Done-brightgreen)
+![Version](https://img.shields.io/badge/Version-v0.8.0-purple)
+![Status](https://img.shields.io/badge/Status-Phase%208%20%28Evaluation%29%20Done-brightgreen)
 
 ## 目录
 
@@ -23,9 +23,9 @@
 
 ## 简介
 
-mini-harness 是一个分阶段演进的 LLM Agent 框架（Harness），目标是从内核出发，逐步补全一个生产级 Agent 系统所需的全部基础设施。项目按 11 个阶段推进，**Phase 1–7 已完成（v0.7.0），Phase 8（Evaluation）待启动**。
+mini-harness 是一个分阶段演进的 LLM Agent 框架（Harness），目标是从内核出发，逐步补全一个生产级 Agent 系统所需的全部基础设施。项目按 11 个阶段推进，**Phase 1–8 已完成（v0.8.0），Phase 9（Security）待启动**。
 
-已完成的 Phase 1–7 把「模型会调用工具」这件事拆解成六个可独立演进的子系统：
+已完成的 Phase 1–8 把「模型会调用工具」这件事拆解成七个可独立演进的子系统：
 
 - **工具运行时**：统一工具定义（JSON Schema）、Pydantic → Schema 工厂、JSON Schema 参数校验（拒绝外部 `$ref`）、权限检查、超时控制、重试策略、统一结果对象
 - **上下文工程**：Token 预算与安全边距、分区组装指令（系统指令 + 工作状态 + 检索知识 + 外部上下文）、历史窗口与超预算裁剪（记录丢弃消息数）
@@ -33,10 +33,11 @@ mini-harness 是一个分阶段演进的 LLM Agent 框架（Harness），目标�
 - **检索增强（RAG）**：文档加载与字符切分（带重叠）、稳定 ID、向量化（Qwen / OpenAI 嵌入）、向量存储（Chroma）、稠密检索与可插拔重排、证据化结果投影
 - **MCP 集成**：MCP Server 配置与网关（HTTP / STDIO 双传输）、工具发现与统一适配（权限 / 策略 / 元数据）、资源读取、可选服务器降级
 - **可观测性**：OpenTelemetry 追踪（span）与指标（计数 / 直方图）、结构化 JSON 日志、模型用量与成本核算、Console / OTLP 双导出
+- **评估（Evaluation）**：JSONL 评测数据集与格式校验、确定性评估器（答案包含 / 必需工具 / 禁止工具 / 最大步数）、可选 LLM Judge（参考答案 / 评分标准）、评测报告落盘与质量门、基线回归对比
 
 应用层由 `PersistentAgentService` 把运行器与持久化编排在一起（支持多轮会话）；模型层通过 Provider 适配，目前支持 DeepSeek（chat 接口）与 OpenAI（responses 接口），可平滑替换。观测能力以横切方式注入各子系统，不改动既有业务逻辑。
 
-## 已实现能力（Phase 1–7）
+## 已实现能力（Phase 1–8）
 
 | 模块 | 阶段 | 能力 |
 | --- | --- | --- |
@@ -49,10 +50,12 @@ mini-harness 是一个分阶段演进的 LLM Agent 框架（Harness），目标�
 | `harness/retrieval` | P5·P7 | 文档加载 / 字符切分 / 稳定 ID / 嵌入（Qwen·OpenAI）/ 向量存储（Chroma）/ 稠密检索 / 重排 / 证据投影；`retrieval.search` span 与检索指标 |
 | `harness/mcp` | P6·P7 | MCP 网关（HTTP·STDIO）、工具发现与适配、工具策略、资源读取、可选服务器降级；`mcp.tool.call` span 与 MCP 指标 |
 | `harness/observability` | P7 | OTel 引导（Console / OTLP 导出）、`Observability.span` 封装、`HarnessMetrics` 指标集、结构化 JSON 日志、模型成本核算 |
-| `harness/application.py` | P6·P7 | `PersistentAgentService`：多轮会话 / 运行 / 消息落库与状态迁移，包住 Runner |
+| `harness/evaluation` | P8 | `EvaluationRunner` 评测编排、JSONL 数据集加载与格式校验、确定性评估器（答案包含 / 必需工具 / 禁止工具 / 最大步数）、可选 `OpenAIJudgeEvaluator`（参考答案 / 评分标准）、JSON 报告与质量门、回归基线对比 |
+| `harness/application.py` | P6·P7·P8 | `PersistentAgentService`：多轮会话 / 运行 / 消息落库与状态迁移，包住 Runner 并回传 `RunEvidence`（工具执行事实与模型用量） |
 | `app_tools` | P2·P5 | 示例工具：计算器（P2）、`search_knowledge_base` 知识检索（P5，多租户过滤） |
 | `mcp_servers` | P6 | 演示 MCP Server：`multiply` / `get_order_status` 工具 + `guide://harness` 资源 |
-| `scripts` | P5·P7 | 知识导入、MCP 冒烟/检查、可观测性冒烟（`observability_smoke_test`） |
+| `evals` | P8 | 评测数据集（`evals/datasets/smoke.jsonl`）与评测报告（`evals/reports/`） |
+| `scripts` | P5·P7·P8 | 知识导入、MCP 冒烟/检查、可观测性冒烟（`observability_smoke_test`）、评估冒烟（`evaluation_smoke_test`）、报告回归对比（`compare_eval_reports`） |
 
 ## 路线图
 
@@ -65,7 +68,7 @@ mini-harness 是一个分阶段演进的 LLM Agent 框架（Harness），目标�
 | 5 | RAG | 已完成 | 文档加载与切分、向量化与索引、检索结果注入上下文 |
 | 6 | MCP | 已完成 | MCP Server 网关与工具发现、统一适配、工具策略与降级 |
 | 7 | Observability | 已完成 | OpenTelemetry 追踪与指标、结构化日志、模型用量与成本 |
-| 8 | Evaluation | 计划中 | 评测数据集、自动化评分、回归基线 |
+| 8 | Evaluation | 已完成 | 评测数据集、自动化评分、回归基线 |
 | 9 | Security | 计划中 | 沙箱执行、权限模型增强、审计与脱敏 |
 | 10 | Durable Execution | 计划中 | 崩溃恢复、断点续跑、长任务编排 |
 | 11 | Commercial Platform | 计划中 | 多租户、配额与计费、管理后台 |
@@ -96,8 +99,10 @@ DASHSCOPE_API_KEY=sk-xxxx
 DASHSCOPE_MODEL=text-embedding-v3
 DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 
-# MCP 演示服务器地址(可选，默认 http://localhost:8000/mcp)
-DEMO_MCP_URL=http://localhost:8000/mcp
+# MCP 演示服务器地址(可选，默认 http://127.0.0.1:8000/mcp)
+# 演示服务器只监听 IPv4 回环地址；请使用 127.0.0.1 而非 localhost，
+# 否则客户端可能解析到 ::1 而导致工具发现失败（可选服务器会静默降级）。
+DEMO_MCP_URL=http://127.0.0.1:8000/mcp
 
 # 可观测性(Phase 7)
 OTEL_MODE=console                                   # console 或 otlp
@@ -118,6 +123,40 @@ python main.py
 ```
 
 `main.py` 演示完整的应用组装：初始化遥测 → SQLite 持久化 → 注册本地计算工具 → 组装 RAG 检索 → 发现并注册 MCP 工具 → 构建运行器，然后进入交互式问答（输入 `exit` 退出）。会话、运行状态与消息都会持久化，多轮输入会续接同一会话；运行链路同时输出 span、指标与结构化日志。
+
+### 运行评测（Phase 8）
+
+`main.py` 提供 `chat`（默认）与 `eval` 两个子命令：
+
+```bash
+# 运行评测数据集并写出报告（默认 evals/datasets/smoke.jsonl）
+python main.py eval
+
+# 指定数据集 / 套件名 / 报告路径 / 质量门阈值
+python main.py eval --dataset evals/datasets/smoke.jsonl --suite smoke \
+  --report evals/reports/latest.json --min-pass-rate 0.8 --min-average-score 0.8
+
+# 追加 LLM Judge（需要 OPENAI_API_KEY；同时启用参考答案 / 评分标准评估）
+python main.py eval --judge-model gpt-4o-mini
+```
+
+评测流程：加载 JSONL 数据集 → 每个 Case 使用独立 Conversation 跑真实 Agent → 确定性评估器评分（可叠加 LLM Judge）→ 写出 JSON 报告 → 质量门校验未达标则以非零退出码结束（可直接用于 CI 阻断）。
+
+报告字段包含每个 Case 的输入、实际输出、步数、**工具执行证据**（`evidence.tool_executions`）与各评估器的分数和原因，便于定位失败原因。
+
+回归对比（与基线报告比较，通过率或平均分下降超阈值则非零退出）：
+
+```bash
+python -m scripts.compare_eval_reports \
+  evals/reports/baseline.json evals/reports/latest.json
+```
+
+运行评测前请确认演示 MCP 服务器已启动（`python -m mcp_servers.demo_server`），否则 `mcp_multiply` 这类依赖远端工具的用例会因可选服务器降级而失败：
+
+```bash
+# 单独的评测冒烟（不依赖真实模型）
+python -m scripts.evaluation_smoke_test
+```
 
 ### 可观测性（Tracing / Metrics / Logs）
 
@@ -193,16 +232,16 @@ PersistentAgentService.ask ──► 会话/运行/消息落库 → AgentRunner.
 
 ## 项目结构
 
-以下为 Phase 1–7 已落地的结构：
+以下为 Phase 1–8 已落地的结构：
 
 ```
 mini-harness/
-├── main.py                    # 交互式示例：遥测初始化 + 持久化 + 工具 + RAG + MCP 组装
+├── main.py                    # CLI 入口（chat / eval）：遥测 + 持久化 + 工具 + RAG + MCP + 评测组装
 ├── pyproject.toml             # 项目元数据、依赖声明与 pytest 配置
 ├── harness/
-│   ├── models.py              # ToolCall / ModelUsage / ModelResult / RunResult
+│   ├── models.py              # ToolCall / ModelUsage / ModelResult / RunResult / RunEvidence
 │   ├── runner.py              # AgentRunner 主循环（agent.loop span）
-│   ├── application.py         # PersistentAgentService：多轮会话 + 持久化编排
+│   ├── application.py         # PersistentAgentService：多轮会话 + 持久化编排 + RunEvidence 回传
 │   ├── tools/                 # 工具运行时（定义/工厂/校验/注册/执行/结果/错误）
 │   ├── context/               # 上下文工程（Token 预算 + 指令分区 + 历史裁剪）
 │   ├── state/                 # 状态模型（Conversation/Run/Step/Checkpoint/Event）
@@ -211,12 +250,13 @@ mini-harness/
 │   ├── retrieval/             # RAG：加载 / 切分 / 嵌入 / 向量存储 / 检索 / 投影
 │   ├── mcp/                   # MCP：配置 / 网关 / 发现 / 适配 / 资源
 │   ├── observability/         # 可观测性：引导 / span / 指标 / 日志 / 成本 + Collector 参考配置
-│   ├── evaluation/            # [规划] Phase 8：评测数据集与自动评分
+│   ├── evaluation/            # Phase 8：数据集 / 评估器 / Judge / 运行器 / 报告与质量门
 │   └── security/              # [规划] Phase 9：沙箱 / 审计 / 脱敏
 ├── app_tools/                 # 示例工具（计算器 / 知识检索）
 ├── mcp_servers/               # 演示 MCP Server
+├── evals/                     # 评测数据集（datasets/）与报告（reports/）
 ├── scripts/                   # 演示与诊断脚本
-├── tests/                     # pytest 测试（可观测性）
+├── tests/                     # pytest 测试（可观测性 / 评估）
 └── del/                       # 归档：旧版实现、已废弃模块与历史测试（不入库）
 ```
 
@@ -232,13 +272,15 @@ mini-harness/
 - **检索链路可插拔**：嵌入（Qwen / OpenAI）、向量存储（Chroma）均为 Protocol 接口，检索结果以证据格式（来源 / 章节 / 分数）注入上下文
 - **观测为横切关注点**：各子系统通过构造函数注入 `Observability` / `Metrics`，业务代码只做最小改动（外层包裹 span）；未接入时自动退化（`nullcontext` / 可选项）
 - **日志与链路关联**：结构化日志自动携带 `trace_id` / `span_id`，与 OTel 追踪上下文打通
+- **评估事实不依赖 Trace Backend**：`RunEvidence`（工具执行记录 / 模型用量）由 Runner 随 `RunResult` 逐层回传，评估器只读应用级事实，不查询遥测后端
+- **评估器可插拔 + 质量门**：`Evaluator` / `EvaluationTarget` 均为 Protocol；确定性评估器与 LLM Judge 可自由组合，报告落盘后由质量门与基线回归对比决定是否阻断 CI
 
 ## 开发状态
 
 项目处于活跃开发中，接口与目录结构可能随阶段推进调整。各阶段完成后会同步更新本文档的路线图与能力清单（详见 [CHANGELOG.md](CHANGELOG.md)）。
 
-- 测试覆盖随重构调整：当前 `tests/` 保留可观测性测试，历史测试位于 `del/tests/` 归档
-- `.env`、`data/` 与 `del/` 已加入 `.gitignore`，不会提交到仓库
+- 测试覆盖随重构调整：当前 `tests/` 保留可观测性与评估测试，历史测试位于 `del/tests/` 归档
+- `.env`、`data/` 与 `del/` 已加入 `.gitignore`，不会提交到仓库；评测报告中的 `evals/reports/latest.json` 为每次运行产物，同样不入库（`baseline.json` 作为回归基线入库）
 
 ## 贡献
 

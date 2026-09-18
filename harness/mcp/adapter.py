@@ -45,7 +45,7 @@ def adapt_mcp_tool(*, spec, gateway, policy) -> Tool:
         required_permissions=frozenset({
             f"mcp.{spec.server_name}.{spec.remote_name}"
         }),
-        side_effects=policy.side_effect,
+        side_effect=policy.side_effect,
         source="mcp",
         metadata={
             "mcp_server": spec.server_name,

@@ -16,3 +16,6 @@ def get_order_status(order_id: str) -> dict:
 def harness_guide() -> str:
     """演示 MCP Resource（MCP资源）。"""
     return "Harness 负责 Agent 的执行、工具、上下文和运行状态。"
+
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http", host="127.0.0.1", port=8000)

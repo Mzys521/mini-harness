@@ -24,5 +24,3 @@ async def main() -> None:
         print("is_error：", result.is_error)
         print("structured_content：", result.structured_content)
 
-if __name__ == "__main__":
-    asyncio.run(main())

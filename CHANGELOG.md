@@ -6,7 +6,35 @@
 
 ### 计划中
 
-- Phase 8（Evaluation）：评测数据集、自动化评分、回归基线
+- Phase 9（Security）：沙箱执行、权限模型增强、审计与脱敏
+
+## [0.8.0] - 2026-09-18
+
+### 新增
+
+- **P8 评估（`harness/evaluation`）**：`EvaluationRunner` 评测编排（`evaluation.run` / `evaluation.case` span 与 case 计数、耗时指标）、JSONL 数据集加载与格式校验（`load_jsonl_dataset` / `DatasetFormatError`，校验非空 id、id 不重复、非空 input）、确定性评估器（`AnswerContainsEvaluator` / `RequiredToolEvaluator` / `ForbiddenToolEvaluator` / `MaxStepsEvaluator`）、可选 `OpenAIJudgeEvaluator`（参考答案 / 评分标准，结构化 JSON Schema 输出 + 阈值判定）、JSON 报告落盘（`write_json_report`）、质量门（`assert_quality_gate` / `EvaluationGateError`）、评测目标适配器 `HarnessEvaluationTarget`
+- **评测数据模型（`harness/evaluation/models.py`）**：`EvalCase` / `EvalSample` / `EvalScore` / `EvalCaseResult` / `EvalSummary` / `EvalRunResult`
+- **评估事实通道（`harness/models.py`）**：新增 `RunEvidence` 与 `ToolExecutionRecord`，Runner 逐层回传工具执行记录与模型用量，评估器不再依赖 Telemetry Backend
+- **CLI 子命令（`main.py`）**：`chat`（默认，保持 Phase 7 兼容）与 `eval`；`eval` 支持 `--dataset` / `--suite` / `--report` / `--min-pass-rate` / `--min-average-score` / `--judge-model`，质量门未通过时以非零退出码结束
+- **脚本与数据**：`scripts/evaluation_smoke_test.py`（不依赖真实模型的评测冒烟）、`scripts/compare_eval_reports.py`（与基线报告做回归对比）、`evals/datasets/smoke.jsonl`（本地工具 / MCP 工具 / 无工具三个场景）、`evals/reports/baseline.json`（回归基线）
+- **测试**：`tests/test_evaluation.py` 与 `tests/fakes_evaluation.py`
+- **指标**：`HarnessMetrics` 新增 `eval_cases` / `eval_case_duration`，并为既有指标补充 description 与 unit
+
+### 变更
+
+- `PersistentAgentService.ask` 回传 `RunEvidence`；`ApplicationResult` 新增 `evidence` 字段
+- Checkpoint 的 `working_state` 改用 `dataclasses.asdict` 序列化
+- `AgentRunner` 采集 `ToolExecutionRecord`（call_id / name / arguments / status / error_code）与 `ModelUsage`
+- `tests/fakes_observability.py` 扩展 FakeMetrics（补充评估指标桩）
+- README 更新至 Phase 1–8：路线图、能力表、`eval` 使用说明、项目结构与设计要点
+
+### 修复
+
+- `harness/application.py` 缺少 `field` / `asdict` 导入，导致模块导入即 `NameError`
+- `harness/runner.py` 工具证据处引用了未定义的 `tool_result`（应为 `result`），任何工具调用都会 `NameError`
+- `harness/application.py` 指标名拼写 `agnet_runs` → `agent_runs`
+- `harness/observability/collector-cofig.yaml` 文件名拼写 → `collector-config.yaml`
+- `main.py` MCP 默认地址 `localhost` → `127.0.0.1`：演示服务器只监听 IPv4 回环地址，使用 `localhost` 时客户端可能解析到 `::1` 导致工具发现失败，且可选服务器会静默降级
 
 ## [0.7.0] - 2026-09-18
 

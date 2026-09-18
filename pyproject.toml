@@ -1,6 +1,6 @@
 [project]
 name = "mini-harness"
-version = "0.7.0"
+version = "0.8.0"
 requires-python = ">=3.12"
 dependencies = ["openai", "pydantic>=2", "python-dotenv", "jsonschema", "chromadb", "opentelemetry-api", "opentelemetry-sdk", "opentelemetry-exporter-otlp-proto-http","mcp[cli]>=2,<3"]
 

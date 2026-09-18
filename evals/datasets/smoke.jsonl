@@ -1,0 +1,3 @@
+{"id":"local_add","input":"请计算 12 + 30，并直接告诉我结果。","tags":["tool","local"],"expected_answer_contains":["42"],"expected_tools":["add"],"forbidden_tools":["demo__multiply"],"max_steps":4}
+{"id":"mcp_multiply","input":"请使用远程乘法工具计算 6 * 7。","tags":["tool","mcp"],"expected_answer_contains":["42"],"expected_tools":["demo__multiply"],"max_steps":4}
+{"id":"simple_no_tool","input":"只回答：你好。不要调用任何工具。","tags":["no_tool"],"expected_answer_contains":["你好"],"forbidden_tools":["add","demo__multiply","search_knowledge_base"],"max_steps":2}

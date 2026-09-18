@@ -13,9 +13,11 @@ def tool_from_pydantic(
     timeout_seconds: float = 10.0, 
     max_retries: int = 0, 
     required_permissions: frozenset[str] = frozenset(), 
-    side_effects: bool = False, 
+    side_effect: bool = False, 
     source: str = "local", 
-    metadata: dict | None = None) -> Tool:
+    metadata: dict | None = None,
+    inject_context: bool = False
+    ) -> Tool:
     """本地 Pydantic Model（Pydantic数据模型）在进入 Runtime 前统一成 JSON Schema。"""
     return Tool(
         name=name, 
@@ -25,9 +27,10 @@ def tool_from_pydantic(
         timeout_seconds=timeout_seconds, 
         max_retries=max_retries, 
         required_permissions=required_permissions, 
-        side_effects=side_effects, 
+        side_effect=side_effect, 
         source=source, 
-        metadata=metadata or {}
+        metadata=metadata or {},
+        inject_context=inject_context,
     )
 
 
