@@ -8,13 +8,20 @@ from harness.tools.errors import RetryableToolError
 from harness.tools.registry import ToolRegistry
 from harness.tools.result import ToolResult, ToolStatus
 from harness.tools.validation import validate_tool_arguments
+from time import perf_counter
 
 
 class ToolExecutor:
-    def __init__(self, registry: ToolRegistry) -> None:
+    def __init__(self, registry: ToolRegistry , observability , metrics) -> None:
         self.registry = registry
+        self.observability = observability
+        self.metrics = metrics
+        
 
     async def execute(self, call: ToolCall, context: ToolContext) -> ToolResult:
+
+        started = perf_counter()
+
         try:
             tool = self.registry.get(call.name)
         except ValueError as exc:
@@ -25,7 +32,44 @@ class ToolExecutor:
                 error_code="TOOL_NOT_FOUND", 
                 error_message=str(exc)
             )
+        
+        attributes = {
+            "tool.name": tool.name,
+            "tool.source": tool.source,
+        }
+        self.metrics.tool_calls.add(1, attributes)
 
+        with self.observability.span(
+            "tool.execute",
+            {
+                **attributes,
+                "agent.run_id": context.run_id,
+            },
+        ) as span:
+
+            result = await self._execute_tool(
+                tool=tool, 
+                call=call, 
+                context=context
+            )
+
+            span.set_attribute("tool.status", result.status.value)
+            span.set_attribute("tool.attempts", result.attempts)
+
+            metric_attributes = {
+                **attributes,
+                "status": result.status.value,
+            }
+            self.metrics.tool_duration.record(perf_counter() - started, metric_attributes)
+
+            if not result.ok:
+                self.metrics.tool_errors.add(1, metric_attributes)
+                span.set_error(result.error_code or result.status.value)
+
+            return result
+
+
+    async def _execute_tool(self, tool: Tool, call: ToolCall, context: ToolContext) :
         try:
             validate_tool_arguments(tool.input_schema, call.arguments)
         except ValueError as exc:

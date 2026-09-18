@@ -38,6 +38,9 @@ class ContextSection:
 class ModelContext:
     """构建完成、即将发送给模型的上下文"""
     instructions: str    # 指令
+    input_data: list[dict[str , str]]    # 输入数据
+    estimated_tokens: int    # 估算的 token 总数
+    dropped_messages: int    # 被裁剪丢弃的消息数
     user_input: str    # 用户输入
 
 # 在 0.6.0 版本中弃用

@@ -11,7 +11,7 @@
 pip install -e ".[dev]"
 ```
 
-- 参考 README 的「快速开始」配置 `.env`
+- 参考 README 的「快速开始」配置 `.env`（含 DeepSeek / DashScope / MCP / 可观测性 / 上下文预算等环境变量）
 - 运行测试，确认环境就绪：
 
 ```bash
@@ -49,6 +49,7 @@ python -m pytest tests -q
 
 - 遵循仓库现有风格：类型标注、frozen dataclass、简洁中文注释
 - 本地工具请放入 `app_tools/`，用 `tool_from_pydantic` 工厂构建（Pydantic 参数模型 → JSON Schema）
+- 新增能力如需观测：通过构造函数注入 `Observability` / `Metrics`，在业务外层包裹 `span` 并记录指标，未接入时保持可选
 - 测试放在 `tests/` 下，文件命名 `test_*.py`
 - 不要提交 `.env`、`data/`、`del/` 及任何缓存文件（已在 `.gitignore` 中排除）
 

@@ -10,6 +10,14 @@ class ToolCall:
     name: str       # 要调用的工具名
     arguments: dict[str , Any]    # 模型给出的工具参数(原始JSON对象)
 
+@dataclass(frozen=True)
+class ModelUsage:
+    """统一 Provider Usage（供应商用量）模型。"""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    cached_input_tokens: int = 0
+
 # 模型结果  
 @dataclass
 class ModelResult:
@@ -17,7 +25,8 @@ class ModelResult:
     text: str    # 模型输出的文本内容
     tool_calls: list[ToolCall] = field(default_factory=list)    # 模型请求的工具调用列表(可能为空)
     response_id : str | None = None    # 响应ID，用于下一轮请求续接上下文
-
+    usage: ModelUsage = field(default_factory=ModelUsage)
+    
 @dataclass
 class RunResult:
     """模型运行结果"""

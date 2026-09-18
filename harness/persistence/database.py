@@ -9,13 +9,14 @@ from typing import Any
 class Database:
     """SQLite 数据库封装: 负责连接创建与建表初始化"""
 
-    def __init__(self , path: str,) -> None:
+    def __init__(self , path: str, * , observability = None) -> None:
         """参数 path: SQLite 数据库文件路径"""
         self.path = path
+        self.observability = observability
 
     def uow(self) :
         from harness.persistence.unit_of_work import UnitOfWork
-        return UnitOfWork(self)
+        return UnitOfWork(self , observability=self.observability)
 
 
     # 创建数据库连接 SQLite3

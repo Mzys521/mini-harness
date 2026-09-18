@@ -2,12 +2,14 @@ from mcp import Client , StdioServerParameters
 from harness.mcp.config import MCPServerConfig , MCPTransport
 from harness.mcp.errors import MCPConfigurationError , MCPConnectionError
 from harness.mcp.models import MCPToolSpec
-
+from time import perf_counter
 
 class MCPGateway:
     """官方 MCP SDK 与 Harness Core 只见的网关"""
-    def __init__(self, config : MCPServerConfig) -> None:
+    def __init__(self, config, *, observability, metrics) -> None:
         self.config = config
+        self.observability = observability
+        self.metrics = metrics
 
     def _target(self):
         if self.config.transport == MCPTransport.HTTP:
@@ -65,14 +67,39 @@ class MCPGateway:
 
         return specs
 
-    async def call_tool(self , tool_name : str , argument : dict):
-        try: 
-            async with Client(self._target()) as client:
-                return await client.call_tool(tool_name, argument)
-        except Exception as exc:
-            raise MCPConnectionError(
-                f"MCP Tool 调用传输失败：{self.config.name}/{tool_name}: {exc}"
-            ) from exc
+    async def call_tool(self, remote_name: str, arguments: dict):
+        started = perf_counter()
+        attributes = {
+            "mcp.server.name": self.config.name,
+            "mcp.tool.name": remote_name,
+        }
+        self.metrics.mcp_calls.add(1, attributes)
+
+        with self.observability.span("mcp.tool.call", attributes) as span:
+            try:
+                async with Client(self._target()) as client:
+                    result = await client.call_tool(remote_name, arguments)
+
+                status = "error" if result.is_error else "success"
+                span.set_attribute("mcp.tool.status", status)
+                self.metrics.mcp_duration.record(
+                    perf_counter() - started,
+                    {**attributes, "status": status},
+                )
+                if result.is_error:
+                    self.metrics.mcp_errors.add(1, {**attributes, "status": "tool_error"})
+                return result
+
+            except Exception as exc:
+                self.metrics.mcp_errors.add(1, {**attributes, "status": "transport_error"})
+                self.metrics.mcp_duration.record(
+                    perf_counter() - started,
+                    {**attributes, "status": "transport_error"},
+                )
+                span.set_error("mcp transport failure")
+                raise MCPConnectionError(
+                    f"MCP Tool 调用传输失败：{self.config.name}/{remote_name}: {exc}"
+                ) from exc
 
     async def read_resource(self , url : str):
         try : 

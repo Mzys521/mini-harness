@@ -6,7 +6,6 @@ import json
 
 from typing import Protocol
 from datetime import UTC, datetime
-
 from harness.state.models import (
     Run,
     Step,
@@ -16,12 +15,10 @@ from harness.state.models import (
     StepState,
     StepType,
 )
-
 from harness.persistence.database import (
     dump_json,
     load_json,
 )
-
 from harness.context.models import (
     Message ,
     MessageRole,
@@ -287,6 +284,23 @@ class SQLiteMessageRepository:
                 datetime.now(UTC).isoformat(),
             ),
         )
+        
+    def list_recent(self, *, conversation_id: str, limit: int = 100) -> list[Message]:
+        rows = self.connection.execute(
+            """
+            SELECT role, content
+            FROM messages
+            WHERE conversation_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (conversation_id, limit),
+        ).fetchall()
+
+        return [
+            Message(role=MessageRole(row["role"]), content=row["content"])
+            for row in reversed(rows)
+        ]
 
     # 已于 0.6.0 版本中弃用
     # --------------------------------------------------------------------------------

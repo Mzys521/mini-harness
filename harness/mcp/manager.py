@@ -4,9 +4,13 @@ from harness.mcp.client import MCPGateway
 from harness.mcp.discovery import discover_and_register
 
 class MCPManager:
-    def __init__(self, configs) -> None:
+    def __init__(self, configs, *, observability, metrics) -> None:
         self.gateways = {
-            config.name: MCPGateway(config)
+            config.name: MCPGateway(
+                config,
+                observability=observability,
+                metrics=metrics,
+            )
             for config in configs
             if config.enabled
         }

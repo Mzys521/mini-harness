@@ -6,7 +6,33 @@
 
 ### 计划中
 
-- Phase 7（Observability）：调用链追踪、指标采集、结构化日志
+- Phase 8（Evaluation）：评测数据集、自动化评分、回归基线
+
+## [0.7.0] - 2026-09-18
+
+### 新增
+
+- **P7 可观测性（`harness/observability`）**：OTel 引导 `configure_observability`（TracerProvider + MeterProvider，Console / OTLP 双导出，资源属性 service.name / service.version）、`Observability.span` 上下文管理器与 `SpanHandle`（受限 span 能力：属性 / 事件 / 异常 / 错误状态）、`HarnessMetrics` 指标集（agent / tool / mcp 调用与错误计数、model input / output token、agent / model / tool / retrieval / mcp 耗时直方图、检索结果数）、结构化 JSON 日志（自动注入 `trace_id` / `span_id`）、模型成本核算（`ModelPrice` / `CostCalculator`）、`ObservabilityConfig`
+- **模型用量采集**：新增 `ModelUsage`（input / output / total / cached tokens）；Provider 上报 `gen_ai.*` span 属性与 token、耗时指标
+- **观测接入各子系统**：`agent.loop`（Runner）、`gen_ai.generate`（Provider）、`tool.execute`（ToolExecutor）、`retrieval.search`（RetrievalPipeline）、`mcp.tool.call`（MCPGateway）、`persistence.transaction`（UnitOfWork）
+- **多轮会话**：`PersistentAgentService.ask` 支持传入 `conversation_id` 续接会话（租户校验 + 历史回放 `list_recent`），返回 `ApplicationResult`（conversation_id / run_id / output / steps）
+- **上下文预算回归**：`TokenBudget`（含安全边距）+ `ApproxTokenCounter` + `ContextBuilder` 历史窗口与超预算裁剪（记录 `dropped_messages`）
+- **脚本与测试**：`scripts/observability_smoke_test.py`；`tests/test_observability.py` 与 `tests/fakes_observability.py`（Fake span / metrics）
+- **依赖**：新增 `opentelemetry-api`、`opentelemetry-sdk`、`opentelemetry-exporter-otlp-proto-http`；`harness/observability/` 下提供 OTel Collector 参考配置
+
+### 变更
+
+- `main.py` 组装流程重构：遥测初始化前置，交互式循环支持多轮会话（输入 `exit` 退出）
+- `ContextBuilder` 改为持有 `TokenBudget` / `ApproxTokenCounter` / `recent_message_limit`；`ModelContext` 调整为 `instructions + input_data + estimated_tokens + dropped_messages + user_input`
+- `AgentRunner.run` 拆分为外层 span 包装与 `_run_loop`；`history` 参数改为必传
+- 各子系统构造函数新增 `observability` / `metrics` 注入（未接入时自动退化为空实现）
+- 测试目录调整：历史测试归档至 `del/tests/`，`tests/` 保留可观测性测试
+- `pyproject.toml` 版本号同步为 `0.7.0`
+
+### 修复
+
+- `harness/observability/config.py` 误引入 `_pytest` 内部模块依赖
+- `harness/persistence/repositories.py` 重复导入 `Message` / `MessageRole`
 
 ## [0.6.0] - 2026-09-16
 
