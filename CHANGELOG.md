@@ -6,7 +6,51 @@
 
 ### 计划中
 
-- Phase 9（Security）：沙箱执行、权限模型增强、审计与脱敏
+- Phase 11（Commercial Platform）：多租户、配额与计费、管理后台
+
+## [0.10.0] - 2026-09-20
+
+### 新增
+
+- **P10 Durable Execution（`harness/durable`）**：`DurableAgentService`（提交 Run 并驱动状态机）、`DurableWorker` / `DurableWorkerPool`（`asyncio.TaskGroup` 结构化并发 + Lease 心跳）、`SQLiteDurableStore`（Queue / Claim / Lease / 乐观版本 / 取消）、`SQLiteApprovalStore`（持久审批，跨进程恢复）、`SQLiteRunBudgetStore`（按 call_id 去重的持久预算）、`SQLiteIdempotencyStore`、`AgentExecutionState` 序列化（`serialization.py`）与跨 Worker Trace 传播（`tracing.py`）
+- **Durable 状态模型（`harness/durable/models.py`）**：`ExecutionPhase`（MODEL / TOOL / WAITING_APPROVAL / WAITING_RECONCILIATION / COMPLETED / FAILED / CANCELLED）、`DurableRunStatus`、`AgentExecutionState`、`DurableRunRecord` / `DurableSubmission` / `DurableResult`、`DurableConflictError` / `DurableLeaseLostError`
+- **Durable 配置（`harness/durable/config.py`）**：`DurableConfig`（worker_count / lease_seconds / poll_interval / idle_backoff / transition_retry_delay / max_transitions_per_claim）
+- **幂等与对账（`harness/tools/idempotency.py`）**：`IdempotencyStatus`（`STARTED` / `COMPLETED` / `UNCERTAIN`）、`IdempotencyRecord`、`IdempotencyStore` Protocol
+- **P9 安全补全（`harness/security/sandbox.py`）**：`ProcessIsolationSandbox`（`shell=False`、可执行文件 allowlist、最小环境变量、临时工作目录、超时与输出上限）、`SandboxPolicyError`、`SandboxResult`；文档与代码均明确标注这是 **Process Isolation Adapter，不是强 OS 沙箱**
+- **副作用示例工具（`app_tools/notes.py`）**：`create_note`（写本地 JSONL，`side_effect=True`，权限 `note.create`），用于端到端验证 Approval Gate
+- **可观测性 `file` 导出模式**：`OTEL_MODE=file` 时 span 与指标写入 `OTEL_TELEMETRY_PATH`（默认 `data/telemetry.log`）、结构化 JSON 日志写入 `OTEL_LOG_PATH`（默认 `data/logs.jsonl`），控制台只保留对话与工具输出；落盘文件固定 UTF-8，避免中文 Windows 下 console exporter 继承 gbk 造成的乱码
+- **`shutdown_observability()`**：进程退出时（含质量门失败等异常路径）`force_flush` 并关闭 Tracer / Meter Provider，避免最后一批 span 与指标丢失
+- **测试**：`tests/test_durable_execution.py`、`tests/test_durable_store.py`、`tests/test_idempotency.py`、`tests/test_sandbox.py`；`scripts/security_smoke_test.py`
+
+### 变更
+
+- **`main.py` 入口重构**：新增 `durable-chat`（默认）/ `durable-check` 子命令，保留 `chat` / `security-check` / `eval`；Composition Root 组装 Durable Store、Security、Idempotency 与 Worker Pool
+- **`AgentRunner` 支持分段推进**：保留即时 `run()`，新增 `create_execution()` / `advance()`，使同一条模型—工具循环可由不同 Worker 分步执行与恢复
+- **`ToolExecutor` 恢复 Phase 2 Middleware 扩展点**（`harness/tools/middleware.py`），并接入 Security 策略与 Idempotency
+- **`ContextBuilder` 恢复 `ContextPolicy` 与 `sources`**（`harness/context/policy.py` / `sources.py`），上下文选择策略与组装机制分离
+- **`pyproject.toml`**：版本升至 `0.10.0`、`requires-python >=3.11`、补 `[build-system]`、新增 `ruff` / `mypy` 配置与 `asyncio_mode = "auto"`、补回 `python-dotenv` 依赖
+- **`QwenEmbeddingProvider` 恢复并适配**：DashScope OpenAI 兼容模式，零参构造读取 `DASHSCOPE_*`，`base_url` 支持回退兼容模式默认地址，移除调试用 `print`
+
+### 修复
+
+- **Canonical Baseline Repair（Phase 1–9 基线修复）**：恢复被后续精简示例误删的能力 —— `ToolMiddleware`、`ContextPolicy` / `sources`、`Step` / `RuntimeEvent` 与完整 SQLite Schema、完整 MCP 网关与可选服务器降级逻辑、`OpenAIEmbeddingProvider`、带 Observability 的 `RetrievalPipeline`
+- **评估链路缺陷修正**：`ForbiddenToolEvaluator` 判定反转（原实现 `missing = forbidden_used - actual` 恒为空集，导致「禁止工具」检查永远通过）；`DatasetFromatError` 拼写修正为 `DatasetFormatError`；`ApplicationResult` 补回 `evidence` 回传（评估器此前拿不到工具执行事实）；Runner 累加模型用量（`state.evidence.model_usage + model_result.usage`）
+- `main.py` 缺少 `load_dotenv()`，导致 `.env`（模型 / MCP / 安全 / 可观测性配置）完全不生效
+- 遥测未 `force_flush`，进程退出时最后一批 span 与指标丢失
+- `main.py` 与基线不一致的两处引用：`app_tools.calculator` 实际导出为 `tool_list`（改为 `for` 循环注册）、`ProcessIsolationSandbox` 需从 `harness.security.sandbox` 直接导入
+
+## [0.9.0] - 2026-09-20
+
+### 新增
+
+- **P9 Security（`harness/security`）**：`SecurityService`（输入 / 输出检查与运行收尾）、Guard 集合（`InputLengthGuard` / `OutputLengthGuard` / `PromptInjectionSignalGuard` / `SecretOutputGuard`）、`DefaultToolPolicy`（禁用清单 → 调用预算 → 副作用 / 显式审批的确定性判定）、`InMemoryApprovalStore` / `InMemoryRunBudgetStore`、`JsonlAuditSink` / `NullAuditSink` 审计、`SecurityConfig` 与 `SecurityAction` / `SecurityDecision` / `SecurityFinding` / `SecuritySeverity` 模型
+- **`security-check` 子命令**：无需网络的 Phase 9 验收，覆盖"未审批副作用工具 → APPROVAL_REQUIRED → 审批后 SUCCESS / Prompt Injection 信号 / Secret 脱敏 / 允许的可执行文件"
+- **测试**：`tests/test_security.py`、`tests/test_security_evaluation.py`、`tests/test_security_tool_result.py`、`tests/fakes_security.py`
+
+### 变更
+
+- `ToolExecutor` 在执行前加入确定性安全策略关卡；`Tool` 新增 `requires_approval` 字段（即使 `side_effect=False` 也可要求审批）
+- `PersistentAgentService` 接入 `SecurityService`：运行前后做输入 / 输出检查，安全决策写入 `RunEvidence.security_decisions` 并落审计
 
 ## [0.8.0] - 2026-09-18
 

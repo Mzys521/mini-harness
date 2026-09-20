@@ -1,6 +1,7 @@
 import json
 import logging
 from datetime import UTC , datetime
+from pathlib import Path
 from opentelemetry import trace
 
 _STANDARD_FIELDS = {
@@ -28,8 +29,19 @@ class JsonFormatter(logging.Formatter):
             payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload, ensure_ascii=False, default=str)
 
-def configure_structured_logging(level: str = "INFO") -> None:
-    handler = logging.StreamHandler()
+def configure_structured_logging(level: str = "INFO", path: str | None = None) -> None:
+    """配置结构化 JSON 日志。
+
+    参数 level: 日志级别
+    参数 path: 为 None 时输出到控制台；否则以 UTF-8 追加写入该文件
+    """
+    if path is None:
+        handler: logging.Handler = logging.StreamHandler()
+    else:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(target, encoding="utf-8")
+
     handler.setFormatter(JsonFormatter())
     root = logging.getLogger()
     root.handlers.clear()

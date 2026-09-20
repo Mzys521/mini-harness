@@ -1,4 +1,4 @@
-
+# 文件：harness/mcp/adapter.py
 import json
 
 from harness.mcp.errors import MCPToolCallError
@@ -7,19 +7,13 @@ from harness.tools.definition import Tool
 def result_to_text(result) -> str:
     """把不同 MCP Content Block（内容块）规范化成当前 Harness 可处理输出。"""
     if result.structured_content is not None:
-        return json.dumps(
-            result.structured_content, 
-            ensure_ascii=False, 
-            default=str
-        )
+        return json.dumps(result.structured_content, ensure_ascii=False, default=str)
 
-    parts : list[str] = []
+    parts: list[str] = []
     for block in result.content:
         text = getattr(block, "text", None)
         parts.append(text if text is not None else str(block))
-
     return "\n".join(parts)
-
 
 def adapt_mcp_tool(*, spec, gateway, policy) -> Tool:
     """远程 MCP Tool（MCP工具）→ 内部统一 Tool（工具）。"""
@@ -46,6 +40,8 @@ def adapt_mcp_tool(*, spec, gateway, policy) -> Tool:
             f"mcp.{spec.server_name}.{spec.remote_name}"
         }),
         side_effect=policy.side_effect,
+        idempotent=policy.idempotent,
+        requires_approval=policy.requires_approval,
         source="mcp",
         metadata={
             "mcp_server": spec.server_name,
@@ -55,32 +51,3 @@ def adapt_mcp_tool(*, spec, gateway, policy) -> Tool:
             "requires_approval": policy.requires_approval,
         },
     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

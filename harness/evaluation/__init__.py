@@ -1,3 +1,4 @@
+# 文件：harness/evaluation/__init__.py
 from harness.evaluation.dataset import (
     DatasetFormatError,
     load_jsonl_dataset,
@@ -7,6 +8,7 @@ from harness.evaluation.deterministic import (
     ForbiddenToolEvaluator,
     MaxStepsEvaluator,
     RequiredToolEvaluator,
+    SecurityPolicyEvaluator,
 )
 from harness.evaluation.models import (
     EvalCase,
@@ -39,6 +41,7 @@ __all__ = [
     "HarnessEvaluationTarget",
     "MaxStepsEvaluator",
     "RequiredToolEvaluator",
+    "SecurityPolicyEvaluator",
     "assert_quality_gate",
     "load_jsonl_dataset",
     "write_json_report",

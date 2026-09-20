@@ -1,76 +1,129 @@
-import sqlite3
+# 文件：harness/persistence/database.py
 import json
-
+import sqlite3
 from pathlib import Path
-from harness.persistence.schema import SCHEMA_SQL
 from typing import Any
 
+from harness.persistence.schema import SCHEMA_SQL
+
+def dump_json(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str,
+    )
+
+def load_json(value: str):
+    return json.loads(value)
 
 class Database:
-    """SQLite 数据库封装: 负责连接创建与建表初始化"""
+    """SQLite 连接与 Schema 初始化。
 
-    def __init__(self , path: str, * , observability = None) -> None:
-        """参数 path: SQLite 数据库文件路径"""
+    Phase 10 开启 WAL 以改善单机 Reader/Writer 并发；SQLite WAL 不适合跨主机网络文件系统。
+    """
+
+    def __init__(
+        self,
+        path: str,
+        *,
+        observability=None,
+        busy_timeout_ms: int = 5_000,
+    ) -> None:
         self.path = path
         self.observability = observability
+        self.busy_timeout_ms = busy_timeout_ms
 
-    def uow(self) :
-        from harness.persistence.unit_of_work import UnitOfWork
-        return UnitOfWork(self , observability=self.observability)
-
-
-    # 创建数据库连接 SQLite3
     def connect(self) -> sqlite3.Connection:
-        """创建并配置一个数据库连接。
-        返回: 关闭自动提交、支持按列名取值的连接
-        """
-        connection = sqlite3.connect(self.path , autocommit=False)
+        connection = sqlite3.connect(
+            self.path,
+            timeout=self.busy_timeout_ms / 1000,
+        )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-
+        connection.execute(
+            f"PRAGMA busy_timeout = {int(self.busy_timeout_ms)}"
+        )
         return connection
 
     def initialize(self) -> None:
-        """建库初始化: 创建父目录并执行建表脚本(幂等，可重复调用)"""
-
-        Path(self.path).parent.mkdir(parents=True, exist_ok=True,)
-
+        Path(self.path).parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
         connection = self.connect()
 
-        # 建表脚本整体执行: 失败回滚并抛出，成功提交后关闭连接
-        try: 
+        try:
+            # WAL 提升同机并发；FULL 优先保证提交持久性。
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("PRAGMA synchronous = FULL")
             connection.executescript(SCHEMA_SQL)
+
+            # 兼容早期教程数据库：CREATE TABLE IF NOT EXISTS 不会自动增加新列。
+            self._ensure_column(
+                connection,
+                table="runs",
+                column="current_step",
+                ddl="INTEGER NOT NULL DEFAULT 0",
+            )
+            self._ensure_column(
+                connection,
+                table="runs",
+                column="provider_response_id",
+                ddl="TEXT",
+            )
+            self._ensure_column(
+                connection,
+                table="runs",
+                column="error_message",
+                ddl="TEXT",
+            )
+            self._ensure_column(
+                connection,
+                table="conversations",
+                column="updated_at",
+                ddl="TEXT",
+                backfill_sql=(
+                    "UPDATE conversations "
+                    "SET updated_at = created_at "
+                    "WHERE updated_at IS NULL"
+                ),
+            )
             connection.commit()
-        
-        except Exception :
+        except Exception:
             connection.rollback()
             raise
         finally:
             connection.close()
 
+    @staticmethod
+    def _ensure_column(
+        connection: sqlite3.Connection,
+        *,
+        table: str,
+        column: str,
+        ddl: str,
+        backfill_sql: str | None = None,
+    ) -> None:
+        columns = {
+            row["name"]
+            for row in connection.execute(
+                f"PRAGMA table_info({table})"
+            ).fetchall()
+        }
+        if column in columns:
+            return
 
-def dump_json(value : Any) -> str:
-    """把对象序列化为紧凑 JSON(保留中文，无法序列化的对象转字符串)。
-    参数 value: 待序列化对象
-    返回: JSON 字符串
-    """
-    return json.dumps(
-        value,
-        ensure_ascii= False,
-        separators=(",", ":"),
-        default= str ,
-    )
+        connection.execute(
+            f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"
+        )
+        if backfill_sql:
+            connection.execute(backfill_sql)
 
-def load_json(value : str) -> Any:
-    """解析 JSON 字符串。
-    参数 value: JSON 字符串
-    返回: 解析后的 Python 对象
-    """
-    return json.loads(value)
+    def uow(self):
+        from harness.persistence.unit_of_work import UnitOfWork
 
-
-
-
-
-
-
+        return UnitOfWork(
+            self,
+            observability=self.observability,
+        )

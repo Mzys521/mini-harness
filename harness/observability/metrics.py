@@ -1,5 +1,5 @@
 class HarnessMetrics:
-    """Phase 8 当前完整 Metric（指标）集合。"""
+    """Phase 9 当前完整 Metric（指标）集合。"""
 
     def __init__(self, observability) -> None:
         meter = observability.meter
@@ -33,3 +33,7 @@ class HarnessMetrics:
         self.eval_cases = meter.create_counter("harness.evaluation.cases",description="Evaluation Case 执行总数",)
         self.eval_case_duration = meter.create_histogram("harness.evaluation.case.duration",unit="s",description="单个 Evaluation Case 耗时",)  
         
+        # Security（安全）
+        self.security_decisions = meter.create_counter("harness.security.decisions",description="Security Decision 总数",)
+        self.security_blocks = meter.create_counter("harness.security.blocks",description="Security Block / Approval Required 总数",)
+        self.security_redactions = meter.create_counter("harness.security.redactions", description="Security Redaction 总数",)

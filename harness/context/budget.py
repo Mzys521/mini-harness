@@ -1,4 +1,6 @@
+# 文件：harness/context/budget.py
 from dataclasses import dataclass
+from typing import Protocol
 
 @dataclass(frozen=True)
 class TokenBudget:
@@ -15,7 +17,17 @@ class TokenBudget:
             - self.safety_margin_tokens,
         )
 
-class ApproxTokenCounter:
-    """教学估算器；生产版应替换为 Model-aware Tokenizer（模型感知分词器）。"""
+class TokenCounter(Protocol):
     def count_text(self, text: str) -> int:
-        return 0 if not text else max(1, len(text) // 3)
+        ...
+
+class ApproxTokenCounter:
+    """教学估算器；生产环境应替换成模型感知 Tokenizer。"""
+
+    def count_text(self, text: str) -> int:
+        if not text:
+            return 0
+        return max(
+            1,
+            len(text) // 3,
+        )

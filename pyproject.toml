@@ -1,12 +1,42 @@
+# 文件：pyproject.toml
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "mini-harness"
-version = "0.8.0"
-requires-python = ">=3.12"
-dependencies = ["openai", "pydantic>=2", "python-dotenv", "jsonschema", "chromadb", "opentelemetry-api", "opentelemetry-sdk", "opentelemetry-exporter-otlp-proto-http","mcp[cli]>=2,<3"]
+version = "0.10.0"
+description = "A lightweight, production-oriented Agent Harness learning project."
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.0",
+    "pydantic>=2.0",
+    "python-dotenv>=1.0",
+    "jsonschema>=4.0",
+    "chromadb>=1.0",
+    "mcp[cli]>=2,<3",
+    "opentelemetry-api>=1.0",
+    "opentelemetry-sdk>=1.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.0",
+]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio"]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.12",
+    "mypy>=1.15",
+]
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 testpaths = ["tests"]
-norecursedirs = ["del"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+warn_unused_ignores = true

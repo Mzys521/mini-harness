@@ -1,36 +1,69 @@
-from dataclasses import dataclass , asdict
+# 文件：harness/tools/result.py
+import json
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any
-import json
 
 class ToolStatus(StrEnum):
-    """工具执行的终态枚举"""
-    SUCCESS = "success"    # 执行成功
-    INVALID_ARGUMENTS = "invalid_argument"    # 参数校验失败
-    NOT_FOUND = "not_found"    # 工具不存在
-    PERMISSION_DENIED = "permission_denied"    # 权限不足
-    TIMEOUT = "timeout"    # 执行超时
-    ERROR = "error"    # 其他运行错误
+    SUCCESS = "success"
+    INVALID_ARGUMENTS = "invalid_arguments"
+    NOT_FOUND = "not_found"
+    PERMISSION_DENIED = "permission_denied"
+    SECURITY_DENIED = "security_denied"
+    APPROVAL_REQUIRED = "approval_required"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+    TIMEOUT = "timeout"
+    ERROR = "error"
 
 @dataclass
 class ToolResult:
-    """工具执行的统一结果对象: 成败都以本对象返回"""
-    call_id:str    # 对应的工具调用ID
-    tool_name:str    # 工具名
-    status:ToolStatus    # 执行终态
-    data: Any = None    # 成功时的返回值
-    error_code: str | None = None    # 失败时的错误码
-    error_message: str | None = None    # 失败时的错误信息
-    attempts: int = 1    # 实际尝试次数
+    call_id: str
+    tool_name: str
+    status: ToolStatus
+    data: Any = None
+    error_code: str | None = None
+    error_message: str | None = None
+    attempts: int = 1
+    security_code: str | None = None
+    security_codes: list[str] = field(
+        default_factory=list
+    )
+    model_output_override: str | None = None
 
     @property
     def ok(self) -> bool:
-        """是否成功(status 为 SUCCESS)"""
-        return self.status == ToolStatus.SUCCESS
-    
-    def to_model_output(self)->str:
-        """序列化为 JSON 字符串，作为工具结果回传给模型(无参数)"""
-        return json.dumps(asdict(self) , ensure_ascii=False ,default=str)
-    
+        return (
+            self.status
+            == ToolStatus.SUCCESS
+        )
 
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload.pop(
+            "model_output_override",
+            None,
+        )
+        payload["status"] = self.status.value
+        return payload
 
+    @classmethod
+    def from_dict(
+        cls,
+        payload: dict[str, Any],
+    ) -> "ToolResult":
+        data = dict(payload)
+        data["status"] = ToolStatus(
+            data["status"]
+        )
+        return cls(**data)
+
+    def to_model_output(self) -> str:
+        # 对模型暴露的是安全投影，不一定等于应用内部原始 data。
+        if self.model_output_override is not None:
+            return self.model_output_override
+
+        return json.dumps(
+            self.to_dict(),
+            ensure_ascii=False,
+            default=str,
+        )
