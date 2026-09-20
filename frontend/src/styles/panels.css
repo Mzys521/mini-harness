@@ -1,0 +1,142 @@
+/* ---------- Inspector column ----------
+   Two stacked panes. A pane fills the column when it is the only expanded
+   one, and a collapsed pane degrades to a compact horizontal rail instead of
+   disappearing, so it stays discoverable and keyboard reachable. */
+.inspector { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.inspector > .pane { flex: 1 1 1px; min-height: 0; }
+.inspector > .splitter { flex: 0 0 8px; }
+/* A collapsed pane becomes an intrinsic-height rail instead of claiming the
+   column, so the expanded pane absorbs the freed space. The remembered ratio
+   is restored the moment both panes are expanded again. */
+.inspector > .pane.is-collapsed { flex: 0 0 auto; align-self: start; }
+.context-pane, .activity-pane { display: flex; flex-direction: column; }
+
+/* Collapsed-rail look for both the inspector panes and the sidebar. */
+.pane-rail {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  color: var(--text-secondary);
+  background: var(--surface);
+  text-align: left;
+}
+.pane-rail:hover { background: var(--surface-soft); color: var(--text); }
+.pane-rail svg { width: 14px; height: 14px; }
+.pane-rail-icon { color: var(--text-muted); }
+.pane-rail-title { font-size: 10px; letter-spacing: .4px; }
+.pane-rail-count { margin-left: 2px; color: var(--text-muted); font: 9px var(--mono); }
+.pane-rail-toggle { margin-left: auto; color: var(--text-muted); }
+.pane-rail-toggle:hover { color: var(--text); }
+
+/* Header control that folds a pane into its rail. */
+.pane-toggle { color: var(--text-muted); }
+.pane-toggle:hover { color: var(--text); }
+
+/* A collapsed pane keeps only its rail: no header, no body. */
+.context-pane.is-collapsed .pane-header,
+.context-pane.is-collapsed .context-content,
+.context-pane.is-collapsed .tools-content,
+.activity-pane.is-collapsed .pane-header,
+.activity-pane.is-collapsed .activity-content,
+.activity-pane.is-collapsed .activity-footer { display: none; }
+
+/* ---------- Tabs ---------- */
+.tabs { align-self: stretch; display: flex; align-items: stretch; gap: 21px; }
+.tab { display: flex; align-items: center; gap: 5px; position: relative; font-size: 11px; color: var(--text-secondary); padding: 0; white-space: nowrap; }
+.tab.active { color: var(--text); font-weight: 550; }
+.tab.active::after { content: ""; height: 2px; border-radius: 2px; background: var(--text); position: absolute; left: 0; right: 0; bottom: -1px; }
+.tab-count { background: var(--surface-hover); font: 8px var(--mono); color: var(--text-secondary); border-radius: 4px; padding: 2px 4px; }
+
+/* ---------- Context pane ---------- */
+.context-content, .tools-content { overflow: auto; flex: 1; min-height: 0; }
+.project-overview { padding: 21px 17px 18px; border-bottom: 1px solid var(--line); }
+.overview-heading { display: flex; align-items: center; gap: 10px; }
+.repo-icon { border: 1px solid var(--border); border-radius: 9px; width: 33px; height: 33px; color: var(--accent); background: var(--surface-soft); }
+.repo-icon svg { width: 17px; height: 17px; }
+.overview-heading > div { display: grid; gap: 5px; }
+.overview-heading strong { font-size: 12px; font-weight: 550; }
+.overview-heading div > span { font-size: 9px; color: var(--text-muted); }
+.project-tags { display: flex; align-items: center; gap: 14px; margin-top: 14px; font-size: 9px; color: var(--text-secondary); }
+.project-tags > span { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+.python-dot { width: 6px; height: 6px; border-radius: 50%; background: #b49c64; }
+.file-section { padding: 12px 10px 6px; }
+.file-section .section-label { padding: 0 7px; font-size: 9px; }
+.read-only-label { font-size: 8px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 4px; letter-spacing: 0; }
+.tree-folder { display: flex; align-items: center; gap: 7px; width: 100%; height: 30px; padding: 0 6px; font-size: 10px; text-align: left; border-radius: 5px; }
+.tree-folder:hover { background: var(--surface-soft); }
+.tree-folder svg { width: 13px; height: 13px; color: var(--text-secondary); }
+.tree-folder > span:first-child svg { width: 10px; height: 10px; transition: transform .2s; }
+.tree-folder[aria-expanded="false"] > span:first-child svg { transform: rotate(-90deg); }
+.file-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 29px;
+  gap: 8px;
+  padding: 0 8px 0 27px;
+  border-radius: 5px;
+  color: var(--text-secondary);
+  font: 10px var(--mono);
+  text-align: left;
+}
+.file-item:hover { background: var(--surface-soft); }
+.file-item.active { background: var(--accent-soft); color: var(--text); }
+.file-item svg { width: 12px; height: 12px; }
+.file-item .file-icon { color: #9a8b59; }
+.file-item .file-icon.doc { color: #7a948b; }
+.file-item .file-caption { margin-left: auto; font: 8px var(--font); color: var(--text-muted); white-space: nowrap; }
+.file-preview { margin: 7px 15px 12px; background: var(--surface-soft); border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.file-preview-header {
+  height: 29px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 10px;
+  font: 9px var(--mono);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.file-preview pre { padding: 11px 10px; margin: 0; color: var(--text-secondary); font: 9px/1.9 var(--mono); overflow: auto; max-height: 180px; tab-size: 2; }
+.code-line { display: block; white-space: pre; }
+.code-number { display: inline-block; width: 22px; color: var(--text-muted); opacity: .6; user-select: none; }
+.context-note { display: flex; gap: 6px; align-items: center; padding: 2px 18px 17px; color: var(--text-muted); font-size: 8px; }
+.context-note svg { width: 11px; height: 11px; }
+
+/* ---------- Tools pane ---------- */
+.tool-row { margin: 0 16px; padding: 18px 0; display: flex; gap: 10px; border-bottom: 1px solid var(--line); }
+.tool-row > [data-icon] { width: 30px; height: 30px; background: var(--surface-soft); border: 1px solid var(--border); border-radius: 8px; color: var(--accent); }
+.tool-row svg { width: 15px; height: 15px; }
+.tool-row div { min-width: 0; }
+.tool-row strong { font-size: 10px; font-weight: 550; }
+.tool-row p { font-size: 9px; color: var(--text-secondary); line-height: 1.8; margin: 6px 0; }
+.tool-row code { font: 8px var(--mono); color: var(--text-muted); overflow-wrap: anywhere; }
+.tools-note { font-size: 9px; line-height: 1.8; color: var(--text-muted); padding: 12px 17px; }
+
+/* ---------- Activity (run log) pane ---------- */
+.activity-heading { display: flex; align-items: center; gap: 8px; }
+.activity-heading svg { width: 14px; height: 14px; color: var(--text-secondary); }
+.activity-heading strong { font-size: 11px; font-weight: 500; }
+.activity-heading .tiny-dot { margin-left: 2px; width: 4px; height: 4px; }
+.activity-content { flex: 1; min-height: 0; overflow: auto; padding: 20px 17px 10px; }
+.activity-empty { display: flex; align-items: flex-start; gap: 10px; }
+.activity-empty-icon { height: 23px; width: 23px; border: 1px solid var(--border); border-radius: 50%; color: var(--green); }
+.activity-empty-icon svg { width: 12px; height: 12px; }
+.activity-empty strong { display: block; font-size: 10px; font-weight: 500; margin: 5px 0 7px; }
+.activity-empty p { margin: 0; font-size: 9px; color: var(--text-muted); line-height: 1.8; max-width: 185px; }
+.pending-steps { display: flex; align-items: center; margin: 23px 0 11px 3px; gap: 8px; font-size: 8px; color: var(--text-muted); opacity: .65; white-space: nowrap; }
+.pending-steps > span { display: flex; align-items: center; gap: 4px; }
+.pending-steps .step-line { height: 1px; flex: 1; background: var(--border); }
+.pending-steps i { width: 4px; height: 4px; border: 1px solid var(--text-muted); border-radius: 50%; }
+.activity-footer { font-size: 8px; display: flex; justify-content: center; align-items: center; gap: 5px; color: var(--text-muted); padding: 11px 0; }
+.activity-footer svg { width: 10px; height: 10px; }
+.event { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; padding-bottom: 17px; position: relative; animation: enter .22s ease; }
+.event:not(:last-child)::before { content: ""; width: 1px; position: absolute; left: 8px; top: 20px; bottom: 0; background: var(--border); }
+.event-icon { color: var(--green); height: 18px; width: 18px; background: var(--accent-soft); border-radius: 50%; }
+.event-icon svg { height: 10px; width: 10px; }
+.event.error .event-icon { color: var(--danger); background: var(--surface-hover); }
+.event-title { font-size: 10px; line-height: 18px; }
+.event-detail { color: var(--text-muted); font-size: 9px; line-height: 1.6; word-break: break-word; margin-top: 3px; }
+.event time { font: 8px var(--mono); color: var(--text-muted); line-height: 18px; }

@@ -35,6 +35,29 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+[tool.setuptools.packages.find]
+# Discovered from the module names: the repository root also holds workspace
+# directories (frontend/, scripts/, tests/, evals/, data/, ...), so automatic
+# flat-layout discovery refuses to build a wheel.
+include = ["harness*", "app_tools*", "mcp_servers*"]
+
+[tool.setuptools.package-data]
+# The built workspace is committed under harness/ui/static. Vite emits hashed
+# bundles into static/assets/, so those patterns are required — without them an
+# installed wheel would ship index.html with no JS or CSS.
+"harness.ui" = [
+    "static/*.html",
+    "static/*.css",
+    "static/*.js",
+    "static/*.svg",
+    "static/assets/*.js",
+    "static/assets/*.css",
+]
+
+[tool.setuptools]
+# `main.py` is the documented entry point; ship it as a top-level module.
+py-modules = ["main"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

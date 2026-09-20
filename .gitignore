@@ -19,3 +19,14 @@ data
 
 # 评测报告(每次运行的产物；evals/reports/baseline.json 作为回归基线入库)
 evals/reports/latest.json
+
+# 前端依赖与本地缓存(构建产物 harness/ui/static 需要入库)
+node_modules/
+frontend/dist/
+.npm-cache/
+*.tsbuildinfo
+
+# Python 打包副作用
+build/
+*.egg-info/
+.pkgcheck/

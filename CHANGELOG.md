@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **图形工作台（`harness/ui`）**：Codex 风格多窗体界面，支持边缘拖拽和键盘调整比例、布局记忆、响应式导航、深浅主题、任务搜索、草稿和对话保存、项目快照上下文、Markdown 导出。
+- **同源 API 连接**：FastAPI 首页提供工作台，`/ui` 提供打包静态资源；前端接入现有身份校验与任务提交、轮询、审批、取消和断线后恢复查询，API Key 仅存页面内存。
+- **独立演示**：`python -m harness.ui` 使用 Python 标准库启动本地界面预览；预设响应和模拟审批明确区分于真实模型执行，无新增运行依赖。
+
+### 变更（工作台前端：Vue 3 重构）
+
+- **前端整体重构为 Vue 3 + TypeScript + Vite + Pinia**：原 767 行单文件 `app.js`（`innerHTML` 直写 DOM、状态与视图强耦合）拆分为 25 个组件、6 个 store 与 2 个 composable；源码在 `frontend/`，构建产物输出到 `harness/ui/static/`（**入库**，运行时仍不需要 Node.js）。视觉 token、深色主题、响应式断点与无障碍语义（`role="separator"` + `aria-valuenow`、`role="tablist"` + 方向键、`role="log" aria-live`、原生 `<dialog>` 焦点陷阱、`prefers-reduced-motion`）逐条保留，未做视觉改版
+- **状态与视图彻底分离**：`stores/workspace`（任务 / 对话 / 事件）、`stores/run`（提交 → 轮询 → 审批 / 取消 / 恢复）、`stores/connection`（身份与 Scope）、`stores/inspector`（布局与折叠）、`stores/ui`（对话框）、`stores/toast`；组件只读状态，不再直接操作 DOM
+- **新增：右侧两个面板可折叠**。此前 `.workspace` 是写死的五列 grid，折叠态在 CSS 中并不存在；现在「上下文 · 工具」与「运行记录」各自可折叠（标题栏按钮、`Ctrl/Cmd B`、`Ctrl/Cmd J`、命令面板四种入口）。折叠后面板不消失，而是收成 38px 竖轨（图标 + 标题 + 计数），点击原位展开并恢复折叠前比例；两个面板都折叠时整列只占 38px，空间全部让给对话；仅剩一个面板展开时高度分割条自动隐藏，避免无意义的拖拽目标。折叠状态与宽高比例写入同一条 `layout` 持久化记录，并在 900px 及以下禁用（移动端由底部导航切换视图，不叠加第二套交互）
+- **新增：`Ctrl/Cmd B` / `Ctrl/Cmd J` 快捷键**：全局快捷键集中到 `composables/useShortcuts`，命令面板同步暴露「折叠 / 展开」命令
+
+### 修复（工作台前端）
+
+- **刷新后运行卡在「运行中」**：`task.runId` 虽然落盘，但内存中的运行控制器不会恢复，此前需要用户自己发现并点击「恢复状态查询」；现在加载时对仍持有运行编号的任务自动对账并恢复轮询
+- **运行记录在首轮即终止时丢失终态事件**：原实现只在状态「发生变化」时记录事件，若首次查询就返回 `completed` / `failed`，终态事件永远不会写入；现在先建立基线再比较
+- **运行记录上限裁剪方向错误**：原 `events.slice(-60)` 在超过 60 条时丢弃的是**最新**事件；现改为保留最近 60 条、丢弃最旧的
+- **`harness/ui/static/icon.svg` 会被构建删除**：该文件未入库且位于 `vite build` 的 `emptyOutDir` 目标目录中，首次构建即丢失；现迁移为 `frontend/public/icon.svg` 源资产并随构建输出
+
 ### 计划中
 
 - 主体 Harness 教程（Phase 1–11）已完成。后续不再新增 Harness 核心能力，建议定义为 **Open Source Release Engineering / Production Hardening（开源发布工程 / 生产加固）**：架构文档、Public API Review、语义化版本与发行流程、GitHub Actions、PyPI / Dockerfile、PostgreSQL Adapter、迁移工具、生产部署指南、Benchmark 与示例应用

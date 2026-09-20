@@ -6,12 +6,14 @@ from dataclasses import asdict
 from datetime import datetime
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import APIKeyHeader
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from harness.platform.errors import PlatformError
 from harness.platform.models import TenantStatus
+from harness.ui import STATIC_DIRECTORY
 
 
 class SubmitRunRequest(BaseModel):
@@ -83,6 +85,12 @@ def create_app(commercial_runtime, *, start_background_workers: bool = True) -> 
         version="0.11.0",
         lifespan=lifespan,
     )
+
+    app.mount("/ui", StaticFiles(directory=STATIC_DIRECTORY), name="workspace-assets")
+
+    @app.get("/", include_in_schema=False)
+    async def workspace():
+        return FileResponse(STATIC_DIRECTORY / "index.html")
 
     @app.middleware("http")
     async def request_context_middleware(request: Request, call_next):

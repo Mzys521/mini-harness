@@ -1,0 +1,91 @@
+/* ---------- Dialogs ---------- */
+dialog {
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 15px;
+  box-shadow: 0 25px 100px #161b1433;
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+}
+dialog[open] { animation: dialog-enter .18s ease both; }
+dialog::backdrop { background: #1d221944; backdrop-filter: blur(5px); }
+dialog h2 { font-size: 20px; font-weight: 550; letter-spacing: -.6px; margin: 20px 0 10px; }
+
+/* Command palette */
+.command-dialog { width: min(550px, calc(100vw - 32px)); margin-top: min(17vh, 140px); }
+.command-search { display: flex; align-items: center; gap: 11px; padding: 17px 19px; border-bottom: 1px solid var(--border); color: var(--text-secondary); }
+.command-search input { flex: 1; min-width: 0; border: 0; background: none; color: var(--text); font-size: 13px; }
+.command-search input::placeholder { color: var(--text-muted); }
+.escape-key { border: 1px solid var(--border); border-radius: 4px; padding: 3px 5px; font: 10px var(--mono); color: var(--text-muted); }
+.command-results { max-height: min(350px, 50vh); overflow: auto; padding: 8px; }
+.command-item { width: 100%; display: flex; align-items: center; gap: 10px; padding: 13px 12px; text-align: left; border-radius: 7px; font-size: 12px; }
+.command-item:hover, .command-item.highlighted { background: var(--surface-hover); }
+.command-item > span:last-child { margin-left: auto; font-size: 9px; color: var(--text-muted); }
+.command-item svg { width: 16px; height: 16px; color: var(--text-secondary); }
+.command-empty { padding: 22px; text-align: center; color: var(--text-muted); }
+.command-footer { display: flex; justify-content: space-between; padding: 12px 19px; color: var(--text-muted); font-size: 9px; border-top: 1px solid var(--border); }
+.command-footer > span > span { margin-left: 10px; }
+
+/* Connection settings */
+.settings-dialog { padding: 25px; width: min(420px, calc(100vw - 32px)); }
+.dialog-top { display: flex; justify-content: space-between; align-items: flex-start; }
+.dialog-icon { width: 40px; height: 40px; border: 1px solid var(--border); border-radius: 11px; background: var(--accent-soft); color: var(--accent); }
+.dialog-description { color: var(--text-secondary); font-size: 12px; line-height: 1.9; }
+.server-address { display: flex; align-items: center; gap: 7px; background: var(--surface-soft); border: 1px solid var(--border); border-radius: 7px; font: 10px var(--mono); padding: 11px 10px; margin: 22px 0; }
+.server-address-value { overflow: hidden; text-overflow: ellipsis; }
+.server-status { margin-left: auto; white-space: nowrap; color: var(--text-muted); font: 9px var(--font); }
+.field-label { display: block; font-size: 11px; margin-bottom: 9px; }
+.key-input-wrap { display: flex; align-items: center; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 7px; color: var(--text-muted); }
+.key-input-wrap:focus-within { border-color: var(--accent); }
+.key-input-wrap svg { width: 15px; height: 15px; }
+.key-input-wrap input { min-width: 0; width: 100%; background: transparent; border: 0; color: var(--text); font-size: 11px; }
+.field-help { font-size: 9px; color: var(--text-muted); line-height: 1.7; margin: 9px 0 20px; }
+.form-error { color: var(--danger); font-size: 11px; line-height: 1.7; }
+.primary-button, .secondary-button { width: 100%; display: flex; justify-content: center; align-items: center; gap: 7px; padding: 12px; border-radius: 7px; font-size: 11px; }
+.primary-button { background: var(--text); color: var(--surface); }
+.primary-button:hover { background: var(--accent); }
+.primary-button svg, .secondary-button svg { width: 14px; height: 14px; }
+.secondary-button { margin-top: 8px; color: var(--text-secondary); }
+.secondary-button:hover { background: var(--surface-hover); color: var(--text); }
+.setup-help { border-top: 1px solid var(--border); margin-top: 18px; padding-top: 16px; color: var(--text-muted); font-size: 10px; }
+.setup-help code { float: right; font: 10px var(--mono); color: var(--text-secondary); }
+.setup-help p { font-size: 9px; line-height: 1.8; margin: 12px 0 0; }
+
+/* Attachment picker */
+.attachment-dialog { padding: 20px; }
+.attachment-dialog-heading { display: flex; align-items: center; justify-content: space-between; }
+.attachment-dialog h2 { font-size: 16px; margin: 0; }
+.attachment-dialog > p { color: var(--text-secondary); font-size: 11px; line-height: 1.7; margin-bottom: 16px; }
+.attachment-option { width: 100%; display: flex; align-items: center; padding: 13px 10px; gap: 9px; border-radius: 7px; font: 11px var(--mono); }
+.attachment-option:hover { background: var(--surface-hover); }
+.attachment-option > span:last-child { margin-left: auto; color: var(--accent); }
+
+/* ---------- Toast ---------- */
+/* Toasts stack from the bottom centre; the container ignores pointer events so
+   it never intercepts clicks on the workspace behind it. */
+.toast-stack {
+  position: fixed;
+  bottom: 47px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 10;
+  pointer-events: none;
+  max-width: calc(100vw - 30px);
+}
+.toast {
+  background: var(--text);
+  color: var(--surface);
+  border-radius: 8px;
+  padding: 11px 18px;
+  box-shadow: 0 6px 30px #00000017;
+  font-size: 11px;
+  text-align: center;
+  animation: enter .18s ease both;
+}

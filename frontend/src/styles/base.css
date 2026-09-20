@@ -1,0 +1,60 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--canvas);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button, input, textarea { font: inherit; }
+button { color: inherit; cursor: pointer; border: 0; background: none; -webkit-tap-highlight-color: transparent; }
+button, input, textarea { outline: none; }
+button, a, input, textarea, [tabindex] { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+button:disabled { cursor: not-allowed; opacity: .4; }
+button, .prompt-card, .composer { transition: background .18s, border-color .18s, box-shadow .18s, color .18s, transform .18s; }
+svg { width: 18px; height: 18px; display: block; flex: 0 0 auto; }
+[data-icon] { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; }
+[hidden] { display: none !important; }
+::selection { background: #bacba35c; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.tiny-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--text-muted); flex: 0 0 auto; }
+.tiny-dot.green { background: var(--green); }
+.pulse { animation: pulse 1.8s ease infinite; }
+
+.icon-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.icon-button:hover { background: var(--surface-hover); color: var(--text); }
+.icon-button.small { width: 25px; height: 25px; }
+.icon-button.small svg { width: 15px; height: 15px; }
+
+kbd { font: 9px var(--mono); color: var(--text-muted); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 50% { opacity: .3; } }
+@keyframes enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes dialog-enter { from { opacity: 0; transform: translateY(7px) scale(.99); } to { opacity: 1; transform: none; } }

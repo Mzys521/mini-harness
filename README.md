@@ -59,6 +59,8 @@ mini-harness 是一个分阶段演进的 LLM Agent 框架（Harness），目标�
 | `harness/security` | P9 | `SecurityService` 输入 / 输出检查、Guard（长度 / Prompt Injection 信号 / Secret 脱敏）、`DefaultToolPolicy`（禁用 / 预算 / 审批）、`InMemoryApprovalStore` / `InMemoryRunBudgetStore`、`JsonlAuditSink`、`ProcessIsolationSandbox`（进程隔离 Adapter） |
 | `harness/durable` | P10 | `DurableAgentService`、`DurableWorker` / `DurableWorkerPool`、`SQLiteDurableStore`、`SQLiteApprovalStore`、`SQLiteRunBudgetStore`、`SQLiteIdempotencyStore`、`AgentExecutionState` 序列化与 Trace Carrier |
 | `harness/platform` | P11 | `CommercialPlatformService`（Control Plane，包裹 Durable Runtime）、`SQLitePlatformStore`（Tenant / Plan / API Key / Usage / Billing）、`ApiKeyManager`（HMAC 摘要 + Scope + 撤销）、`QuotaService`、`UsageReconciler`（幂等计量）、`BillingService`（Plan Snapshot + micro-USD）、`create_app`（FastAPI + Lifespan 托管 Worker）、`CommercialRuntime` |
+| `harness/ui` | P11 | 图形工作台的静态托管（`STATIC_DIRECTORY`）与独立预览入口（`python -m harness.ui`）；`static/` 为 Vue 3 + TypeScript 前端的**构建产物**，源码在 `frontend/` |
+| `frontend` | P11 | 工作台前端源码：Vue 3 `<script setup>` + Pinia + Vite；stores（workspace / run / connection / inspector / ui）、可折叠面板（`PaneRail` + `PaneToggle` + `SplitterBar`）、命令面板与连接设置对话框；`npm run test` 用 vitest + jsdom 覆盖折叠与持久化 |
 | `harness/application.py` | P6·P7·P8 | `PersistentAgentService`：多轮会话 / 运行 / 消息落库与状态迁移，包住 Runner 并回传 `RunEvidence`（工具执行事实与模型用量） |
 | `app_tools` | P2·P5·P9 | 示例工具：计算器（P2）、`search_knowledge_base` 知识检索（P5，多租户过滤）、`create_note` 副作用工具（P9，用于验证 Approval Gate） |
 | `mcp_servers` | P6 | 演示 MCP Server：`multiply` / `get_order_status` 工具 + `guide://harness` 资源 |
@@ -208,7 +210,58 @@ python main.py platform-init
 python main.py api
 ```
 
-启动后可访问 `http://127.0.0.1:8008/docs` 查看 OpenAPI UI（开发阶段可直接作为 Admin API 操作台）。
+启动后打开 `http://127.0.0.1:8008/` 使用图形工作台，或访问 `http://127.0.0.1:8008/docs` 查看 OpenAPI UI。
+
+### 图形工作台
+
+项目自带 Codex 风格工作台：**Vue 3 + TypeScript + Vite + Pinia** 编写，构建产物已入库，因此运行时不需要 Node.js，静态资源由 FastAPI 同源提供：
+
+```bash
+# 完整服务：使用上面的平台配置与 API Key
+python main.py api
+# 打开 http://127.0.0.1:8008/
+
+# 仅体验界面：只需 Python 标准库，无需模型或平台密钥
+python -m harness.ui --port 8010
+# 打开 http://127.0.0.1:8010/
+```
+
+- **独立分区**：任务栏、对话、上下文和运行记录；直接拖动分区边缘调整宽高，没有调整比例的显式按钮。双击边缘还原；聚焦边缘后用方向键微调，`Home` 还原。布局比例刷新后保留。
+- **面板可折叠**：右侧「上下文 · 工具」与「运行记录」各自可折叠——面板标题栏右侧的按钮，或 `Ctrl/Cmd B` / `Ctrl/Cmd J`，也可从命令面板切换。折叠后面板不会消失，而是收成一条带图标与计数的竖轨，点一下即原位展开并恢复折叠前的比例；两个面板都折叠时整列只占 38px，空间全部让给对话。折叠状态随布局一起持久化。
+- **响应式**：桌面显示多窗体；900px 及以下通过底部导航切换任务、对话和工作空间，输入区域始终保留在对话窗体底部。移动端不叠加折叠交互（单一视图已经占满屏幕），折叠按钮在该宽度下隐藏。
+- **交互**：深浅主题、`Ctrl/Cmd K` 搜索任务与文件、`Ctrl/Cmd N` 新建任务、上下文选择、对话复制及 Markdown 导出。`Enter` 发送，`Shift + Enter` 换行，兼容中文输入法。
+- **演示模式**：预设回答与审批流程明确标注为演示，不调用模型、不写入笔记。右侧文件是随界面打包的精简项目快照，不是实时文件系统；选中后可随下一条消息提交。
+- **真实连接**：从完整服务首页点击「连接你的 Harness」，输入平台 API Key（不是模型供应商的 Key），验证 `/v1/me` 后调用现有 Run API。密钥仅保存在当前页面内存，刷新后重新连接；提交与查询需要 `runs:create`、`runs:read`，审批和取消分别需要对应 Scope。
+- **恢复与隔离**：对话、草稿、运行编号、主题及比例保存在当前浏览器；演示与真实对话分开，真实对话按已认证租户展示。**页面加载时会自动对账**仍持有运行编号的任务并恢复状态轮询，不会停在「运行中」；也可在审批面板中手动「恢复状态查询」，不重复提交任务。审批、配额和对象授权继续由现有服务端执行。
+
+### 前端源码与构建
+
+源码在 `frontend/`，构建产物输出到 `harness/ui/static/`（**入库**，请勿手改）：
+
+```bash
+cd frontend
+npm install          # 依赖：vue / pinia / vite / typescript / vue-tsc / vitest
+npm run dev          # 开发模式，/healthz 与 /v1 代理到 127.0.0.1:8008
+npm run build        # vue-tsc 类型检查 + vite build（产物为 harness/ui/static）
+npm run test         # vitest + jsdom：面板折叠、持久化与快捷键
+```
+
+```
+frontend/src/
+├─ components/   common/（IconBase/SplitterBar/PaneRail/PaneToggle/AppDialog）
+│                workspace/（TitleBar/Sidebar/Conversation/Inspector/MobileNav/StatusBar）
+│                inspector/（ContextPanel/ToolsPanel/ActivityPanel/InspectorColumn）
+│                conversation/（MessageList/ApprovalPanel）· dialogs/
+├─ stores/       workspace（任务与对话）· run（提交/轮询/审批/取消/恢复）
+│                connection（身份与 Scope）· inspector（布局与折叠）· ui · toast
+├─ api/          client（唯一 fetch 出口）· storage（localStorage 容错端口）
+├─ composables/  useShortcuts · useMediaQuery
+└─ styles/       tokens / base / layout / panels / conversation / dialogs / responsive
+```
+
+独立预览只绑定本机回环地址；需要真实模型执行时，请使用完整 API 服务地址。
+
+### API 端点
 
 | 端点 | 所需 Scope | 说明 |
 | --- | --- | --- |
