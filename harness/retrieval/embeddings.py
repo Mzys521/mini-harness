@@ -30,8 +30,13 @@ class OpenAIEmbeddingProvider:
         *,
         model: str = "text-embedding-3-small",
         batch_size: int = 64,
+        api_key: str | None = None,
+        base_url: str | None = None,
     ) -> None:
-        self.client = OpenAI()
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+        )
         self.model = model
         self.batch_size = batch_size
 

@@ -38,7 +38,10 @@ from harness.evaluation import (
     load_jsonl_dataset,
     write_json_report,
 )
-from harness.evaluation.judge import OpenAIJudgeEvaluator
+from harness.evaluation.judge import (
+    DeepSeekJudgeEvaluator,
+    OpenAIJudgeEvaluator,
+)
 from harness.mcp.config import (
     MCPServerConfig,
     MCPToolPolicy,
@@ -55,8 +58,20 @@ from harness.observability.config import ObservabilityConfig
 from harness.observability.metrics import HarnessMetrics
 from harness.observability.service import Observability
 from harness.persistence.database import Database
+from harness.platform import (
+    ApiKeyManager,
+    BillingService,
+    CommercialPlatformService,
+    PlatformConfig,
+    QuotaService,
+    SQLitePlatformStore,
+    TenantStatus,
+    UsageReconciler,
+    seed_default_plans,
+)
+from harness.platform.api import create_app
+from harness.platform.runtime import CommercialRuntime
 from harness.providers.deepseek_provider import DeepSeekProvider
-from harness.providers.openai_provider import OpenAIProvider
 from harness.retrieval.chroma_store import ChromaVectorStore
 from harness.retrieval.embeddings import QwenEmbeddingProvider
 from harness.retrieval.projector import RetrievalContextProjector
@@ -76,7 +91,7 @@ from harness.security.sandbox import ProcessIsolationSandbox
 from harness.tools.executor import ToolExecutor
 from harness.tools.registry import ToolRegistry
 
-# 显式加载 .env，供 os.getenv 读取模型 / MCP / 可观测性等配置。
+# 显式加载 .env，供 os.getenv 读取模型 / MCP / 可观测性 / 平台配置。
 load_dotenv()
 
 TENANT_ID = "tenant_demo"
@@ -90,6 +105,8 @@ class RuntimeComponents:
     observability: Observability
     metrics: HarnessMetrics
     security: SecurityService
+    database: Database
+    durable_store: SQLiteDurableStore
 
 def env_bool(
     name: str,
@@ -471,12 +488,100 @@ async def build_runtime() -> RuntimeComponents:
         observability=observability,
         metrics=metrics,
         security=security,
+        database=database,
+        durable_store=durable_store,
+    )
+
+async def build_commercial_runtime() -> CommercialRuntime:
+    """Phase 11 Control Plane：复用 Phase 10 Runtime，不复制执行内核。"""
+    core = await build_runtime()
+    store = SQLitePlatformStore(core.database)
+    store.initialize()
+    seed_default_plans(store)
+
+    pepper = os.getenv("HARNESS_API_KEY_PEPPER")
+    if not pepper:
+        raise RuntimeError(
+            "Commercial Platform 需要 HARNESS_API_KEY_PEPPER；"
+            "请先运行 platform-init 并保存稳定 pepper。"
+        )
+
+    config = PlatformConfig(
+        metering_poll_seconds=float(
+            os.getenv("HARNESS_METERING_POLL_SECONDS", "1.0")
+        ),
+        usage_sync_batch_size=int(
+            os.getenv("HARNESS_USAGE_SYNC_BATCH_SIZE", "100")
+        ),
+    )
+    api_keys = ApiKeyManager(
+        store=store,
+        pepper=pepper,
+        prefix=config.api_key_prefix,
+    )
+    quota = QuotaService(store)
+    metering = UsageReconciler(
+        platform_store=store,
+        durable_store=core.durable_store,
+        batch_size=config.usage_sync_batch_size,
+        poll_seconds=config.metering_poll_seconds,
+        metrics=core.metrics,
+    )
+    billing = BillingService(
+        store=store,
+        currency=config.billing_currency,
+    )
+    platform = CommercialPlatformService(
+        durable=core.durable,
+        durable_store=core.durable_store,
+        store=store,
+        quota=quota,
+        metering=metering,
+        billing=billing,
+        api_keys=api_keys,
+        observability=core.observability,
+        metrics=core.metrics,
+    )
+    return CommercialRuntime(
+        core=core,
+        store=store,
+        api_keys=api_keys,
+        service=platform,
+        metering=metering,
+        billing=billing,
+    )
+
+def build_judge_evaluator(
+    *,
+    provider: str,
+    model: str,
+    pass_threshold: float = 0.8,
+):
+    """构造 LLM Judge。
+
+    DeepSeek 与 OpenAI 两个 Judge 同构（同一 Prompt 与评分契约），
+    默认使用 DeepSeek（参数取自 .env 的 DEEPSEEK_*）；OpenAI Responses
+    接口实现完整保留，可通过 provider="openai" 使用。
+    """
+    if provider == "deepseek":
+        return DeepSeekJudgeEvaluator(
+            model=model,
+            pass_threshold=pass_threshold,
+        )
+    if provider == "openai":
+        return OpenAIJudgeEvaluator(
+            model=model,
+            pass_threshold=pass_threshold,
+        )
+    raise ValueError(
+        f"unknown judge provider: {provider}"
     )
 
 def build_evaluation_runner(
     *,
     runtime: RuntimeComponents,
     judge_model: str | None,
+    judge_provider: str = "deepseek",
 ) -> EvaluationRunner:
     target = HarnessEvaluationTarget(
         application=runtime.application,
@@ -497,8 +602,11 @@ def build_evaluation_runner(
         SecurityPolicyEvaluator(),
     ]
     if judge_model:
+        # 默认走 DeepSeek（与 OpenAI Judge 同构）；需要时可用 --judge-provider openai
+        # 切回 Responses 接口实现。
         evaluators.append(
-            OpenAIJudgeEvaluator(
+            build_judge_evaluator(
+                provider=judge_provider,
                 model=judge_model,
                 pass_threshold=0.8,
             )
@@ -631,6 +739,7 @@ async def run_eval(
     runner = build_evaluation_runner(
         runtime=runtime,
         judge_model=args.judge_model,
+        judge_provider=args.judge_provider,
     )
     result = await runner.run(
         suite_name=args.suite,
@@ -1038,29 +1147,188 @@ async def run_durable_check() -> None:
         "Durable Check（持久执行检查）通过。"
     )
 
+
+
+def _platform_control_plane(*, database_path: str, pepper: str):
+    """只构造 Platform Store/Auth，不加载 Model/RAG/MCP；用于 init/check。"""
+    database = Database(database_path)
+    database.initialize()
+    store = SQLitePlatformStore(database)
+    store.initialize()
+    seed_default_plans(store)
+    api_keys = ApiKeyManager(
+        store=store,
+        pepper=pepper,
+        prefix="mhk",
+    )
+    return database, store, api_keys
+
+
+def run_platform_init(args) -> None:
+    pepper = os.getenv("HARNESS_API_KEY_PEPPER")
+    if not pepper:
+        raise RuntimeError(
+            "请先设置 HARNESS_API_KEY_PEPPER；该值用于验证 API Key，"
+            "必须稳定保存，不能每次启动随机变化。"
+        )
+
+    _, store, api_keys = _platform_control_plane(
+        database_path=args.database,
+        pepper=pepper,
+    )
+
+    if store.get_tenant("_platform") is None:
+        store.create_tenant(
+            tenant_id="_platform",
+            name="Platform Operator",
+            plan_id="operator_v1",
+        )
+    if store.get_tenant("tenant_demo") is None:
+        store.create_tenant(
+            tenant_id="tenant_demo",
+            name="Demo Tenant",
+            plan_id="pro_v1",
+        )
+
+    admin_key = api_keys.create_key(
+        tenant_id="_platform",
+        name="platform-admin",
+        scopes=frozenset({"platform:admin"}),
+    )
+    demo_key = api_keys.create_key(
+        tenant_id="tenant_demo",
+        name="demo-client",
+        scopes=frozenset({
+            "runs:create",
+            "runs:read",
+            "runs:approve",
+            "runs:cancel",
+            "usage:read",
+            "billing:read",
+        }),
+    )
+
+    print("Platform 初始化完成。明文 API Key 只显示这一次：")
+    print("ADMIN_API_KEY=", admin_key.secret)
+    print("DEMO_API_KEY=", demo_key.secret)
+    print("请立即保存到 Secret Manager / 本地安全环境变量中。")
+
+
+def run_platform_check() -> None:
+    check_db = Path("data/platform_check.db")
+    if check_db.exists():
+        check_db.unlink()
+
+    _, store, api_keys = _platform_control_plane(
+        database_path=str(check_db),
+        pepper="phase11-test-pepper-please-replace",
+    )
+    store.create_tenant(
+        tenant_id="tenant_check",
+        name="Check Tenant",
+        plan_id="starter_v1",
+    )
+    issued = api_keys.create_key(
+        tenant_id="tenant_check",
+        name="check-key",
+        scopes=frozenset({"runs:create", "usage:read", "billing:read"}),
+    )
+    principal = api_keys.authenticate(issued.secret)
+    assert principal.tenant_id == "tenant_check"
+
+    from harness.platform.models import UsageMetric
+    from harness.platform.quota import QuotaService, utc_month_window
+    from harness.platform.billing import BillingService
+
+    plan = store.get_plan("starter_v1")
+    tenant = store.get_tenant("tenant_check")
+    assert plan is not None and tenant is not None
+    quota = QuotaService(store)
+    assert quota.check_run_submission(tenant=tenant, plan=plan).allowed
+
+    store.record_usage(
+        event_key="check:input_tokens",
+        tenant_id=tenant.id,
+        plan_id=plan.id,
+        metric=UsageMetric.INPUT_TOKENS,
+        quantity=501_000,
+        run_id=None,
+        metadata={},
+    )
+    start, end = utc_month_window()
+    billing = BillingService(store=store)
+    preview = billing.preview(
+        tenant_id=tenant.id,
+        start=start,
+        end=end,
+    )
+    assert preview.total_microusd > 0
+
+    quota_after = quota.check_run_submission(tenant=tenant, plan=plan)
+    assert quota_after.allowed is False
+    assert quota_after.code == "QUOTA_INPUT_TOKENS_EXCEEDED"
+    print("Platform Check（多租户/Auth/Quota/Metering/Billing）通过。")
+
+
+async def run_api(args) -> None:
+    import uvicorn
+
+    commercial = await build_commercial_runtime()
+    app = create_app(
+        commercial,
+        start_background_workers=True,
+    )
+    config = uvicorn.Config(
+        app,
+        host=args.host,
+        port=args.port,
+        log_level=args.log_level,
+    )
+    server = uvicorn.Server(config)
+    await server.serve()
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="mini-harness Phase 10"
+        description="mini-harness Phase 11 Commercial Platform"
     )
-    subparsers = parser.add_subparsers(
-        dest="command"
+    subparsers = parser.add_subparsers(dest="command")
+
+    api_parser = subparsers.add_parser(
+        "api",
+        help="Phase 11 默认 Commercial Platform API",
+    )
+    api_parser.add_argument("--host", default="127.0.0.1")
+    api_parser.add_argument("--port", type=int, default=8008)
+    api_parser.add_argument("--log-level", default="info")
+
+    init_parser = subparsers.add_parser(
+        "platform-init",
+        help="初始化套餐/租户并发行首批 API Key",
+    )
+    init_parser.add_argument(
+        "--database",
+        default=os.getenv("HARNESS_DATABASE_PATH", "data/harness.db"),
     )
 
     subparsers.add_parser(
+        "platform-check",
+        help="无模型验证 Auth / Tenant / Quota / Metering / Billing",
+    )
+    subparsers.add_parser(
         "durable-chat",
-        help="Phase 10 默认 Durable Agent",
+        help="Phase 10 Durable Agent 兼容入口",
     )
     subparsers.add_parser(
         "chat",
-        help="兼容旧 Immediate Agent",
+        help="Phase 1–9 Immediate Agent 兼容入口",
     )
     subparsers.add_parser(
         "security-check",
-        help="Phase 9 修复验收：安全策略与进程隔离",
+        help="Phase 9 安全策略验收",
     )
     subparsers.add_parser(
         "durable-check",
-        help="无网络验证 WAITING / Approval / Resume",
+        help="Phase 10 Durable Execution 验收",
     )
 
     eval_parser = subparsers.add_parser(
@@ -1071,79 +1339,61 @@ def build_parser() -> argparse.ArgumentParser:
         "--dataset",
         default="evals/datasets/smoke.jsonl",
     )
-    eval_parser.add_argument(
-        "--suite",
-        default="smoke",
-    )
+    eval_parser.add_argument("--suite", default="smoke")
     eval_parser.add_argument(
         "--report",
         default="evals/reports/latest.json",
     )
+    eval_parser.add_argument("--min-pass-rate", type=float, default=0.8)
+    eval_parser.add_argument("--min-average-score", type=float, default=0.8)
+    eval_parser.add_argument("--judge-model", default=None)
     eval_parser.add_argument(
-        "--min-pass-rate",
-        type=float,
-        default=0.8,
-    )
-    eval_parser.add_argument(
-        "--min-average-score",
-        type=float,
-        default=0.8,
-    )
-    eval_parser.add_argument(
-        "--judge-model",
-        default=None,
+        "--judge-provider",
+        choices=("deepseek", "openai"),
+        default="deepseek",
     )
     return parser
+
 
 async def async_main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-
-    command = (
-        args.command
-        if args.command is not None
-        else "durable-chat"
-    )
+    command = args.command if args.command is not None else "api"
 
     try:
+        if command == "platform-init":
+            run_platform_init(args)
+            return
+        if command == "platform-check":
+            run_platform_check()
+            return
+        if command == "api":
+            await run_api(args)
+            return
         if command == "security-check":
             await run_security_check()
             return
-
         if command == "durable-check":
             await run_durable_check()
             return
 
         runtime = await build_runtime()
-
         if command == "durable-chat":
-            await run_durable_chat(
-                runtime
-            )
+            await run_durable_chat(runtime)
             return
-
         if command == "chat":
-            await run_immediate_chat(
-                runtime
-            )
+            await run_immediate_chat(runtime)
             return
-
         if command == "eval":
-            await run_eval(
-                runtime,
-                args,
-            )
+            await run_eval(runtime, args)
             return
 
-        parser.error(
-            f"unknown command: {command}"
-        )
+        parser.error(f"unknown command: {command}")
     finally:
         # 冲刷并关闭遥测：span / 指标 均为异步批量导出，
         # 不 force_flush 会丢失最后一批数据（含异常路径与质量门失败）。
         shutdown_observability()
 
+
 if __name__ == "__main__":
-    asyncio.run(
-        async_main()
-    )
+    asyncio.run(async_main())

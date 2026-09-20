@@ -6,7 +6,55 @@
 
 ### 计划中
 
-- Phase 11（Commercial Platform）：多租户、配额与计费、管理后台
+- 主体 Harness 教程（Phase 1–11）已完成。后续不再新增 Harness 核心能力，建议定义为 **Open Source Release Engineering / Production Hardening（开源发布工程 / 生产加固）**：架构文档、Public API Review、语义化版本与发行流程、GitHub Actions、PyPI / Dockerfile、PostgreSQL Adapter、迁移工具、生产部署指南、Benchmark 与示例应用
+
+## [0.11.0] - 2026-09-20
+
+### 新增
+
+- **P11 Commercial Platform（`harness/platform`）**：`CommercialPlatformService`（Control Plane，包裹 Durable Runtime 而不侵入）、`SQLitePlatformStore`（Tenant / Plan / API Key / Usage Ledger / Run Account / Platform Audit）、`ApiKeyManager`（高熵 Key + 数据库只存 HMAC 摘要 + Scope + 撤销）、`QuotaService`（并发 Run / 每日 Run / 月 Token / 月 Tool Call）、`UsageReconciler`（从 Durable Run 的真实 `RunEvidence` 异步幂等计量）、`BillingService`（Plan Snapshot 冻结 + 整数 micro-USD + Decimal）、`create_app`（FastAPI HTTP Surface）
+- **平台模型与错误（`harness/platform/models.py` / `errors.py`）**：`Tenant` / `TenantStatus` / `Plan` / `PlanLimits` / `MeterRate` / `ApiKeyRecord` / `ApiKeyStatus` / `Principal` / `UsageMetric` / `BillingPreview`；`PlatformError` 体系映射为 RFC 9457 `application/problem+json`
+- **平台存储 Schema（`harness/platform/schema.py`）**：`platform_plans` / `platform_tenants` / `platform_api_keys` / `platform_usage_events` / `platform_run_accounts` / `platform_audit_events`，与 Phase 4 Repository 共用 SQLite Adapter 但领域边界独立
+- **FastAPI HTTP Surface（`harness/platform/api.py`）**：`APIKeyHeader` 提取 Key → `Principal` → Tenant ACTIVE → Scope 校验；`/healthz`、`/v1/me`、`/v1/runs`（提交 / 查询 / 审批 / 取消）、`/v1/usage`、`/v1/billing/preview`、`/v1/admin/*`（套餐查看、租户列表与创建、发行 API Key、暂停租户、切换套餐）；对象级授权越权访问返回 **404**（不泄露对象存在性，OWASP API1 BOLA）；每个请求携带 `request_id`
+- **FastAPI Lifespan（`harness/platform/runtime.py` / `bootstrap.py`）**：API 进程启动时托管 Durable Worker Pool + Usage Reconciler，随进程生命周期启停；`CommercialRuntime` 聚合 `core` / `store` / `api_keys` / `service` / `metering` / `billing`；`default_plans()` / `seed_default_plans()` 提供 `starter_v1` / `pro_v1` / `operator_v1` 教学套餐
+- **平台指标（`harness/observability/metrics.py`）**：新增 `platform_auth_failures` / `platform_quota_denials` / `platform_usage_events`（既有 19 个指标全部保留）
+- **CLI 子命令（`main.py`）**：`api`（新的默认入口）、`platform-init`（初始化套餐 / 租户并发行首批 API Key）、`platform-check`（无模型验收）
+- **平台冒烟脚本（`scripts/platform_smoke_test.py`）**：不需要模型即可验证 Platform Schema / API Key 发行与认证 / Tenant / Plan / Quota / Usage / Billing Preview
+- **`.env.example`**：不含任何真实密钥的环境变量示例（对话模型 / DashScope 向量模型 / OTel / 安全 / Durable / 商业平台）
+- **测试**：`tests/test_platform_auth_quota.py`、`tests/test_platform_tenant_isolation.py`、`tests/test_platform_metering.py`、`tests/test_platform_api.py`
+- **Provider 同构化（DeepSeek / Qwen 成为一等实现）**：新增 `DeepSeekJudgeEvaluator`（chat 接口 + `json_object` 输出），与 `OpenAIJudgeEvaluator` 共用同一套 Prompt 与评分契约（`score` 0–1 + `reason`）；`main.py eval` 新增 `--judge-provider {deepseek,openai}`（默认 `deepseek`）。模型、Judge、向量三对实现的构造参数已对齐（`model` / `api_key` / `base_url` / `batch_size`），可零参构造后直接互换
+
+### 变更
+
+- **默认 CLI 入口有意变化**：`python main.py` 由 `durable-chat` 变为 `api`（Phase 11 起最新产品入口是商业平台 API）；Phase 1–10 的 `durable-chat` / `chat` / `durable-check` / `security-check` / `eval` 全部保留，`durable-chat` 为兼容替代
+- **`RuntimeComponents` 只做加法修改**：新增 `database` 与 `durable_store` 两个字段，使 Commercial Composition Root 复用同一个 Durable Store；原有字段全部保留
+- **`pyproject.toml`**：版本升至 `0.11.0`，新增 `fastapi>=0.141.1,<1`、`uvicorn[standard]>=0.52.0,<1`（只属于最外层 HTTP Transport，不反向进入 Harness Kernel）、dev 依赖补 `httpx>=0.28,<1`
+- **实际调用点全部切换到 DeepSeek / Qwen**：对话模型 → `DeepSeekProvider`（读 `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` / `DEEPSEEK_BASE_URL`）、LLM Judge → `DeepSeekJudgeEvaluator`、向量模型 → `QwenEmbeddingProvider`（读 `DASHSCOPE_*`）。OpenAI 的三份实现（`OpenAIProvider` / `OpenAIJudgeEvaluator` / `OpenAIEmbeddingProvider`）**完整保留**，可通过显式参数或 `--judge-provider openai` 切回。本阶段**未新增任何 `.env` 变量**
+- **基线整合（本仓库特有）**：Phase 11 代码落地时保留了 Phase 10 基线的既有实现，未按教程文档的 OpenAI 基线替换 —— `DeepSeekProvider`、`QwenEmbeddingProvider`、`load_dotenv()`、`shutdown_observability()`、`app_tools.calculator.tool_list` 注册循环、`harness.security.sandbox` 子模块导入全部保留；`python-dotenv` 依赖同步保留（教程文档的依赖清单遗漏了它）
+
+### 修复
+
+- **`harness/providers/openai_provider.py` 三处致命缺陷**（此前属于「接口保留了但完全不可用」）：
+  - `perf_counter` / `started` 未定义（ruff F821）→ 任何成功的 Responses 调用都会 `NameError`；现补 `from time import perf_counter` 并在下发请求前取样
+  - 在同步 `OpenAI` 客户端上 `await self.client.responses.create(...)` → `TypeError`；现改用 `AsyncOpenAI`
+  - `self.metrics` 无条件解引用，而构造函数默认 `metrics=None` → `AttributeError`；现与 `DeepSeekProvider` 一致加 `if self.metrics is not None` 保护
+- **`harness/evaluation/judge.py` Judge 输出无兜底**：`json.loads` 失败会中断整轮评测（`EvaluationRunner.run` 没有 per-case 异常隔离）；现统一走 `_parse_score()`，解析失败返回 0 分并在 `reason` 中说明，越界分数收敛到 [0, 1]
+- `OpenAIJudgeEvaluator` / `OpenAIEmbeddingProvider` 补齐 `api_key` / `base_url` 显式参数，使其与对应的 DeepSeek / Qwen 实现构造签名一致
+
+### 兼容
+
+- **Phase 1–10 Runtime 接口没有删除**：`PersistentAgentService`、`DurableAgentService`、`AgentRunner.run` / `advance`、`ToolExecutor`、Security、Evaluation 全部原样保留，Platform 只包裹
+- **`HARNESS_API_KEY_PEPPER` 只在 Commercial Runtime 强制**：`durable-chat` / `chat` / `durable-check` / `security-check` / `eval` 不依赖 Platform API Key
+- **依赖方向固定**：`FastAPI / CLI → ApiKeyManager → Principal → CommercialPlatformService → DurableAgentService → Phase 1–10 Runtime`；`AgentRunner` 本阶段未做任何修改，没有增加 `tenant` / pricing / API key / billing 分支
+- **客户端不提交权限**：`POST /v1/runs` 只接受 `input`；Tenant 由 API Key 解析，Tool Permission 由 `Plan.tool_permissions` 决定，让套餐 Entitlement 成为服务端事实
+- **Billing Provider 可插拔**：当前为内部 Usage Ledger → `BillingService` Preview，未来经 `BillingExporter` 接入 Stripe / ERP / 自建计费，不影响 Agent Runtime
+
+### 已知边界
+
+- SQLite 仍是单节点事实源：`PlatformStore` 与 `DurableStore` 共用同一个 SQLite 文件，适用于本地优先产品 / 单节点 SaaS MVP / 小团队内部服务 / 教学与 Preview；正式多节点部署应迁移 PostgreSQL
+- 尚无严格的分布式 HTTP Rate Limiter；Token Quota 为「完成后计量 + 下次请求阻止」；Usage Ledger 与 Durable Submit 之间不是跨领域原子事务（靠稳定 `event_key` + 对账消除重复，支付级系统应使用 Transactional Outbox）
+- Billing 目前为 Preview / 内部账本计算，尚未实现 Tax / Invoice Finalization / Refund / Credit Note / Payment Collection / Stripe Webhook
+- API Key 是第一版 M2M Auth；Admin Control Plane API 已完成，但没有品牌化 Dashboard UI（开发期使用 `/docs`）
 
 ## [0.10.0] - 2026-09-20
 

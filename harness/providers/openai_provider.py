@@ -1,5 +1,7 @@
 import json
-from openai import OpenAI
+from time import perf_counter
+
+from openai import AsyncOpenAI
 from harness.models import ModelResult , ToolCall, ModelUsage 
 
 class OpenAIProvider:
@@ -11,7 +13,7 @@ class OpenAIProvider:
         参数 api_key: API 密钥
         参数 base_url: 接口地址
         """
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self.model = model
         self.observability = observability
         self.metrics = metrics
@@ -42,6 +44,9 @@ class OpenAIProvider:
         参数 previous_response_id: 上一轮响应ID(服务端自动续接)
         返回: ModelResult(文本 + 工具调用 + 响应ID)
         """
+
+        # Responses 接口耗时基线：必须在下发请求前取样。
+        started = perf_counter()
 
         with self.observability.span(
             "gen_ai.generate",
@@ -80,9 +85,10 @@ class OpenAIProvider:
                 "model": self.model,
                 "provider": "openai",
             }
-            self.metrics.model_input_tokens.add(input_tokens, metric_attributes)
-            self.metrics.model_output_tokens.add(output_tokens, metric_attributes)
-            self.metrics.model_duration.record(perf_counter() - started, metric_attributes)
+            if self.metrics is not None:
+                self.metrics.model_input_tokens.add(input_tokens, metric_attributes)
+                self.metrics.model_output_tokens.add(output_tokens, metric_attributes)
+                self.metrics.model_duration.record(perf_counter() - started, metric_attributes)
 
             tool_calls : list[ToolCall] =[]
 
