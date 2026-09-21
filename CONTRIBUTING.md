@@ -17,9 +17,11 @@ pip install -e ".[server,dev]"
 
 ```bash
 python -m compileall -q harness tests
-python -m pytest tests -q
+pytest -q                    # 与 CI 完全一致的调用方式
 mini-harness doctor          # 不调用模型，只检查配置与可选依赖
 ```
+
+> 请用 `pytest`（控制台脚本）而不是 `python -m pytest`：后者会把当前目录塞进 `sys.path`，从而掩盖 `tests` / `app_tools` 的导入问题——CI 跑的正是 `pytest -q`。`pyproject.toml` 里的 `pythonpath = ["."]` 已经保证两者行为一致，但按 CI 的方式跑才是有意义的验证。
 
 - 改动前端时（源码在 `frontend/`，构建产物 `harness/ui/static/` 入库）：
 

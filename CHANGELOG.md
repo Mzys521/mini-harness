@@ -75,6 +75,8 @@
 
 ### 修复（文档、配置来源与 0.13 语义对齐）
 
+- **CI 从第一次运行起就全红：`pytest -q` 无法 import `app_tools` 与 `tests`**。`packages.find` 有意把 `app_tools*` / `tests*` 排除在发行版之外，而仓库既没有 `tests/__init__.py` 也没有根 `conftest.py`，于是只有「`python -m pytest`（把 cwd 加进 `sys.path`）」才跑得通；CI 用的是控制台脚本 `pytest`，9 个测试模块在 collection 阶段直接 `ModuleNotFoundError`。现补 `[tool.pytest.ini_options] pythonpath = ["."]`，并把 `tests/` 声明为常规包（避免被 site-packages 里同名的顶层 `tests` 抢占）。**两种调用方式从此一致**——这类「本地全绿、CI 全红」的偏差本身就是缺陷
+
 - **`scripts/platform_smoke_test.py` 仍在断言「配额会拒绝提交」**：0.13 把 `QuotaService` 改成恒 `UNLIMITED` 之后，该断言必然失败（`python -m scripts.platform_smoke_test` 以退出码 1 结束）。现改为断言「允许提交 + `UNLIMITED`」，账本与计费预览的校验保持不变
 - **硬编码的版本号散落在三处**：`harness/app/server.py` 的 FastAPI `version` 与 `GET /healthz` 都写死 `"0.12.0"`（README 明确把该端点写成健康检查的一部分，却会一直返回旧版本），`ObservabilityConfig.service_version` 默认 `"0.11.0"`，`frontend/package.json` 与 lockfile 停在 `0.11.0`。现分别改为 `harness.__version__`（server 与 observability）与 `0.13.0`（前端包），版本号从此只有一个来源
 - **README 与 `.env.example` 曾把大量已被 `harness.toml` 取代的环境变量写成「仍然生效」**。实际只有 Provider 凭据（`DEEPSEEK_*` / `OPENAI_*` / `DASHSCOPE_*`）、`HARNESS_API_KEY_PEPPER` 与 `HARNESS_APP` 会被直接读取；其余设置一律来自 `harness.toml`，需要环境变量时请在 TOML 里写 `${VAR}` / `${VAR:-default}`。`.env.example` 已按此重写，删去 `HARNESS_MAX_INPUT_CHARS` / `OTEL_MODE` / `DEMO_MCP_URL` 等已不生效的条目

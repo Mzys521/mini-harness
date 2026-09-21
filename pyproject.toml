@@ -85,6 +85,11 @@ exclude = ["tests*", "examples*", "app_tools*", "mcp_servers*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# 让 tests 能 import 仓库根下的 app_tools / tests（两者都被 packages.find 排除在
+# 发行版之外）。必须显式声明：`python -m pytest` 会把 cwd 加进 sys.path，但 CI 与
+# 装了 console_scripts 的环境跑的是 `pytest`，不会——只靠 cwd 会让同一套用例在
+# 本地全绿、在 CI 全部 collection error。
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
