@@ -1,5 +1,7 @@
 # 环境变量文件(含密钥，禁止提交)
 .env
+.env.*
+!.env.example
 
 # 旧版/临时目录(不参与版本管理)
 del/
@@ -8,14 +10,21 @@ del/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # 虚拟环境
 .venv/
 venv/
 
-# 数据目录
+# 数据目录与本地 SQLite
 data/
 data
+*.db
+*.db-shm
+*.db-wal
 
 # 评测报告(每次运行的产物；evals/reports/baseline.json 作为回归基线入库)
 evals/reports/latest.json
@@ -26,7 +35,17 @@ frontend/dist/
 .npm-cache/
 *.tsbuildinfo
 
-# Python 打包副作用
+# 打包副作用
 build/
+dist/
 *.egg-info/
 .pkgcheck/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local integration and browser verification artifacts
+.test-tmp/

@@ -25,6 +25,11 @@ from harness.security.models import (
 from harness.security.policy import (
     DefaultToolPolicy,
 )
+from harness.security.sandbox import (
+    ProcessIsolationSandbox,
+    SandboxPolicyError,
+    SandboxResult,
+)
 from harness.security.service import (
     SecurityService,
 )
@@ -37,7 +42,10 @@ __all__ = [
     "JsonlAuditSink",
     "NullAuditSink",
     "OutputLengthGuard",
+    "ProcessIsolationSandbox",
     "PromptInjectionSignalGuard",
+    "SandboxPolicyError",
+    "SandboxResult",
     "SecretOutputGuard",
     "SecurityAction",
     "SecurityConfig",

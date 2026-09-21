@@ -43,24 +43,6 @@ class DefaultToolPolicy:
                 ),
             )
 
-        if not self.budget_store.consume(
-            run_id=context.run_id,
-            limit=self.config.max_tool_calls_per_run,
-            key=call.call_id,
-        ):
-            return SecurityDecision(
-                action=SecurityAction.BLOCK,
-                code="SEC_TOOL_BUDGET_EXCEEDED",
-                reason="当前 Run 的 Tool Call Budget 已耗尽。",
-                findings=(
-                    SecurityFinding(
-                        code="SEC_TOOL_BUDGET_EXCEEDED",
-                        severity=SecuritySeverity.HIGH,
-                        message="Agent 尝试超过允许的工具调用预算。",
-                    ),
-                ),
-            )
-
         # 兼容 Phase 6/9：显式字段优先，旧 metadata hint 仍可读取。
         requires_approval = (
             tool.requires_approval

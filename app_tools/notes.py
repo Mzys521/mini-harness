@@ -82,3 +82,9 @@ create_note_tool = (
         source="local",
     )
 )
+
+# 与 calculator.py / workspace.py 一致：每个工具模块都导出 tool_list，
+# 由 app_tools/__init__.py 汇总，应用入口一次性注册。
+tool_list = [
+    create_note_tool,
+]

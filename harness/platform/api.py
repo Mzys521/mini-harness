@@ -11,6 +11,7 @@ from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
+from harness import __version__
 from harness.platform.errors import PlatformError
 from harness.platform.models import TenantStatus
 from harness.ui import STATIC_DIRECTORY
@@ -82,7 +83,7 @@ def create_app(commercial_runtime, *, start_background_workers: bool = True) -> 
 
     app = FastAPI(
         title="mini-harness Commercial Platform API",
-        version="0.11.0",
+        version=__version__,
         lifespan=lifespan,
     )
 
@@ -121,7 +122,7 @@ def create_app(commercial_runtime, *, start_background_workers: bool = True) -> 
 
     @app.get("/healthz")
     async def healthz():
-        return {"status": "ok", "version": "0.11.0"}
+        return {"status": "ok", "version": __version__}
 
     @app.get("/v1/me")
     async def me(principal=Depends(principal_dependency)):

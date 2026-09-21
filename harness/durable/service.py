@@ -48,6 +48,7 @@ class DurableAgentService:
         security,
         observability,
         metrics,
+        events=None,
     ) -> None:
         self.runner = runner
         self.database = database
@@ -56,6 +57,12 @@ class DurableAgentService:
         self.security = security
         self.observability = observability
         self.metrics = metrics
+        # 可选事件出口（RunEventBroker.publish）。为 None 时所有 _emit 都是空操作。
+        self.events = events
+
+    def _emit(self, run_id: str, event: dict) -> None:
+        if self.events is not None:
+            self.events(run_id, event)
 
     async def submit(
         self,
@@ -65,6 +72,10 @@ class DurableAgentService:
         user_input: str,
         permissions: frozenset[str],
         conversation_id: str | None = None,
+        workspace_id: str | None = None,
+        workspace_path: str | None = None,
+        knowledge_path: str | None = None,
+        external_context: str | None = None,
     ) -> DurableSubmission:
         with self.observability.span(
             "durable.submit"
@@ -181,8 +192,12 @@ class DurableAgentService:
                 self.runner.create_execution(
                     safe_input,
                     history=history,
+                    external_context=external_context,
                     tool_context=ToolContext(
                         run_id=run.id,
+                        workspace_id=workspace_id,
+                        workspace_path=workspace_path,
+                        knowledge_path=knowledge_path,
                         user_id=user_id,
                         tenant_id=tenant_id,
                         permissions=permissions,
@@ -196,12 +211,24 @@ class DurableAgentService:
                 evidence.security_decisions
             )
 
+            with self.database.uow() as uow:
+                uow.checkpoints.add(Checkpoint(id=new_id("cp"), run_id=run.id, step_sequence=0, state=execution_to_dict(execution)))
+                uow.commit()
             self.durable_store.enqueue(
                 run_id=run.id,
                 execution=execution,
                 trace_carrier=(
                     inject_current_context()
                 ),
+            )
+
+            self._emit(
+                run.id,
+                {
+                    "type": "run.submitted",
+                    "conversation_id": conversation.id,
+                    "input": safe_input,
+                },
             )
 
             return DurableSubmission(
@@ -434,6 +461,7 @@ class DurableAgentService:
                     )
                 },
                 output_data={
+                    **state.transition_data,
                     "phase_after": (
                         state.phase.value
                     ),
@@ -534,6 +562,19 @@ class DurableAgentService:
             state.run_id
         )
 
+        self._emit(
+            state.run_id,
+            {
+                "type": "run.end",
+                "status": "completed",
+                "output": state.final_output or "",
+                "steps": state.model_step,
+                "tokens": (
+                    state.evidence.model_usage.total_tokens
+                ),
+            },
+        )
+
     def persist_waiting(
         self,
         state,
@@ -568,6 +609,18 @@ class DurableAgentService:
                 )
             )
             uow.commit()
+
+        call = state.current_tool_call
+        self._emit(
+            state.run_id,
+            {
+                "type": "run.waiting",
+                "phase": state.phase.value,
+                "call_id": call.call_id if call else None,
+                "tool_name": call.name if call else None,
+                "arguments": dict(call.arguments) if call else None,
+            },
+        )
 
     def persist_failed(
         self,
@@ -614,6 +667,16 @@ class DurableAgentService:
             state.run_id
         )
 
+        self._emit(
+            state.run_id,
+            {
+                "type": "run.end",
+                "status": "failed",
+                "output": state.final_output or "",
+                "error": state.error_message,
+            },
+        )
+
     def persist_cancelled(
         self,
         state,
@@ -646,6 +709,15 @@ class DurableAgentService:
 
         self.security.finish_run(
             state.run_id
+        )
+
+        self._emit(
+            state.run_id,
+            {
+                "type": "run.end",
+                "status": "cancelled",
+                "output": state.final_output or "",
+            },
         )
 
     def _resolve_conversation(

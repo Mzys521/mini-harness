@@ -1,4 +1,5 @@
 from pydantic import BaseModel , ConfigDict
+from harness.app.tooling import tool
 from harness.tools.factory import tool_from_pydantic
 
 class AddArgs(BaseModel):
@@ -27,6 +28,15 @@ class DivideArgs(BaseModel):
 
 def add(a : float , b : float) -> float:
     """两数相加。
+    参数 a: 第一个加数 / 参数 b: 第二个加数
+    """
+    return a + b
+
+# 函数式注册入口(Phase 12)：@tool 声明能力但保留原函数可调用，
+# 因此 add_tool(1, 2) 仍然是一个普通 Python 函数调用。
+@tool
+def add_tool(a : float , b : float) -> float:
+    """两数相加(函数式注册示例)。
     参数 a: 第一个加数 / 参数 b: 第二个加数
     """
     return a + b

@@ -160,7 +160,7 @@ class SQLiteDurableStore:
                 SELECT *
                 FROM durable_runs
                 WHERE
-                    status IN (?, ?)
+                    (status IN (?, ?) OR (status = 'waiting' AND cancel_requested = 1))
                     AND available_at <= ?
                     AND (
                         lease_owner IS NULL
@@ -752,77 +752,9 @@ class SQLiteRunBudgetStore:
     def __init__(self, database) -> None:
         self.database = database
 
-    def consume(
-        self,
-        *,
-        run_id: str,
-        limit: int,
-        key: str | None = None,
-    ) -> bool:
-        call_key = (
-            key
-            or new_id("budget")
-        )
-        connection = (
-            self.database.connect()
-        )
-        now = _utc_now()
-
-        try:
-            connection.execute(
-                "BEGIN IMMEDIATE"
-            )
-
-            existing = connection.execute(
-                """
-                SELECT 1
-                FROM durable_run_budget_calls
-                WHERE
-                    run_id = ?
-                    AND call_key = ?
-                """,
-                (
-                    run_id,
-                    call_key,
-                ),
-            ).fetchone()
-
-            if existing is not None:
-                connection.commit()
-                return True
-
-            row = connection.execute(
-                """
-                SELECT COUNT(*) AS count
-                FROM durable_run_budget_calls
-                WHERE run_id = ?
-                """,
-                (run_id,),
-            ).fetchone()
-
-            if int(row["count"]) >= limit:
-                connection.commit()
-                return False
-
-            connection.execute(
-                """
-                INSERT INTO durable_run_budget_calls (
-                    run_id, call_key, created_at
-                ) VALUES (?, ?, ?)
-                """,
-                (
-                    run_id,
-                    call_key,
-                    now.isoformat(),
-                ),
-            )
-            connection.commit()
-            return True
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
+    def consume(self, *, run_id: str, limit: int | None = None, key: str | None = None) -> bool:
+        """Legacy API retained for callers; personal runs have no call budget."""
+        return True
 
     def clear(
         self,

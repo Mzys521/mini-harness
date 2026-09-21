@@ -1,50 +1,78 @@
 # 文件：pyproject.toml
 [build-system]
-requires = ["setuptools>=75", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mini-harness"
-version = "0.11.0"
-description = "A lightweight, production-oriented Agent Harness learning project."
+version = "0.13.0"
+description = "A lightweight, production-grade Agent Harness with explicit runtime, tools, security and durable execution."
+readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    {name = "mini-harness contributors"},
+]
+keywords = ["ai", "agent", "harness", "llm", "rag", "mcp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
 dependencies = [
     "openai>=1.0",
     "pydantic>=2.0",
     "python-dotenv>=1.0",
     "jsonschema>=4.0",
-    "chromadb>=1.0",
-    "mcp[cli]>=2,<3",
     "opentelemetry-api>=1.0",
-    "opentelemetry-sdk>=1.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.0",
-    "fastapi>=0.141.1,<1",
-    "uvicorn[standard]>=0.52.0,<1",
 ]
 
 [project.optional-dependencies]
+rag = [
+    "chromadb>=1.0",
+]
+mcp = [
+    "mcp[cli]>=2,<3",
+]
+observability = [
+    "opentelemetry-sdk>=1.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.0",
+]
+server = [
+    "fastapi>=0.141.1,<1",
+    "uvicorn[standard]>=0.52.0,<1",
+]
+all = [
+    "mini-harness[rag,mcp,observability,server]",
+]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "ruff>=0.12",
     "mypy>=1.15",
     "httpx>=0.28,<1",
+    "build>=1.2",
 ]
 
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
+[project.scripts]
+mini-harness = "harness.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Mzys521/mini-harness"
+Repository = "https://github.com/Mzys521/mini-harness"
+Issues = "https://github.com/Mzys521/mini-harness/issues"
 
 [tool.setuptools.packages.find]
-# Discovered from the module names: the repository root also holds workspace
-# directories (frontend/, scripts/, tests/, evals/, data/, ...), so automatic
-# flat-layout discovery refuses to build a wheel.
-include = ["harness*", "app_tools*", "mcp_servers*"]
+include = ["harness*"]
+exclude = ["tests*", "examples*", "app_tools*", "mcp_servers*"]
 
 [tool.setuptools.package-data]
-# The built workspace is committed under harness/ui/static. Vite emits hashed
-# bundles into static/assets/, so those patterns are required — without them an
-# installed wheel would ship index.html with no JS or CSS.
+# 工作台构建产物（Vue 3 + Vite）入库在 harness/ui/static；Vite 输出的哈希资源
+# 位于 static/assets/，因此必须显式列出，否则安装后只剩一个没有 JS/CSS 的空壳页面。
 "harness.ui" = [
     "static/*.html",
     "static/*.css",
@@ -54,9 +82,9 @@ include = ["harness*", "app_tools*", "mcp_servers*"]
     "static/assets/*.css",
 ]
 
-[tool.setuptools]
-# `main.py` is the documented entry point; ship it as a top-level module.
-py-modules = ["main"]
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100

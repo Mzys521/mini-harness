@@ -4,7 +4,131 @@
 
 ## [Unreleased]
 
-### 新增
+### 计划中
+
+- 后续不再新增 Harness 核心能力，建议定义为 **Open Source Release Engineering / Production Hardening（开源发布工程 / 生产加固）**：PyPI 发行流程、Dockerfile、PostgreSQL Adapter、迁移工具、生产部署指南、Benchmark 与示例应用
+
+## [0.13.0] - 2026-09-21
+
+> 主题：**流式对话工作台（Streaming Workbench）**。产品定位从「可商用的多租户 Harness」收敛为**本地优先的个人 Agent 工作台**：Phase 1–12 的能力全部保留，但面向个人的运行不再套用 SaaS 配额与调用预算，前端收敛为「创建工作区 + 在工作区里对话」。
+> 升级前请读 [docs/migration-v0.12-to-v0.13.md](docs/migration-v0.12-to-v0.13.md)：本版有两处**行为变化**——配额与调用预算不再拦截运行、多数环境变量改由 `harness.toml` 承载。
+
+### 变更（工具全部抽离到应用层 `app_tools/`）
+
+- **框架层不再内置任何业务工具**：`DesktopService` 去掉 `tools()`，只保留工作区服务能力（文件浏览、知识库存储、会话与运行记录）；`assemble_runtime()` 也不再按 `server.mode == "local"` 注册桌面工具。**修复了 `ModuleNotFoundError: No module named 'app_tools'`**——`app_tools` 不在发行版的 packages 列表里（见 `pyproject.toml`），框架层任何 `from app_tools...` 都会让 `pip install mini-harness` 之后构建运行时必然失败
+- **工作区工具迁到 `app_tools/workspace.py`**：`workspace_list` / `workspace_read` / `workspace_write` / `workspace_command` / `workspace_knowledge_search`。统一按 `calculator.py` 的格式编写：Pydantic 入参模型 + 普通函数 + `tool_from_pydantic(...)`，模块底部导出 `tool_list`；副作用与审批仍由 `requires_approval=True` / `side_effect=True` 声明驱动
+- **`ToolContext` 新增 `workspace_path` / `knowledge_path`**：服务端在提交 Run 时解析一次并写入上下文（同时进入 Durable 状态序列化，重跑与崩溃恢复后依然可用）。工具因此不再需要数据库或服务实例，`app_tools` 可以只依赖 harness 的契约
+- **`workspace_knowledge_search` 改为读取知识库目录**：直接扫描 `knowledge_path` 下的文件做关键词检索（返回文件名与片段，自动去掉 `doc_<id>_` 上传前缀），不再查 `desktop_documents` 表。知识库路径由服务端从工作区配置读取，自定义目录同样生效
+- **`app_tools/__init__.py` 汇总 `all_tools()`**：`main.py` 成为唯一定册点（`app.add_tools(all_tools())`）。`notes.py` 补上 `tool_list`，与 `calculator.py` / `workspace.py` 对齐；需要运行时依赖的 `knowledge.py`（RAG 检索管线）不进入 `all_tools()`，仍由组合根按 `[rag]` 注册
+- **CLI 入口健壮性**：`load_project_app()` 先把当前目录与配置文件所在目录补进 `sys.path`（`mini-harness serve` 的 `sys.path[0]` 是 Scripts 目录，否则 `import app_tools` 会失败），并且只在「工厂模块本身找不到」时回退到零配置；模块存在但其内部 import 失败会原样抛出真实异常，不再静默退化成「一个工具都没有」
+- **测试**：新增 `tests/test_app_tools.py`（工具清单与审批声明、路径越界拒绝、写入 diff、命令执行目录、知识库检索与前缀处理、缺少工作区上下文时报错）与「框架在 `app_tools` 不可导入时仍能构建运行时」的回归测试；`tests/test_desktop_api.py`、`tests/test_run_stream.py` 改为显式注册 `app_tools.workspace.tool_list`
+
+### 新增（会话管理）
+
+- **会话归档与恢复**：`desktop_sessions` 新增 `archived` 列（旧库启动时自动 `ALTER TABLE` 补列），`PATCH /v1/sessions/{id}` 支持 `archived` / `title`，`GET /v1/sessions?archived=true` 返回归档列表。侧栏新增「已归档 · N」折叠分组，可一键恢复。
+- **会话删除**：`DELETE /v1/sessions/{id}` 按依赖倒序清理该会话的 Run 及其所有派生日志——用 `PRAGMA table_info` 找出全部带 `run_id` 的表（steps / checkpoints / events / durable_runs / 审批 / 幂等 / 计量……）后逐表删除，再删 messages、session 与 conversation，因此不会留下悬挂行。会话里还有**非终态 Run 时返回 409**，避免掏空 Worker 正在写的记录。前端为二次确认弹窗。
+- **会话自动命名**：会话标题跟随第一条指令（标题仍是默认「新任务」时才覆盖），侧栏不再堆满同名条目。
+- **会话隔离双保险**：服务端按 `conversation_id` 过滤，前端再按 Run 自带的 `conversationId` 核验一次——对面是没有过滤参数的旧服务时，新会话也不会串入其他会话的内容。
+
+### 修复（工具调用气泡与实时性）
+
+- **工具卡片更醒目**：工具卡片改为带左侧状态色条的独立气泡（执行中 / 等待批准 / 完成 / 失败 / 已跳过 用不同颜色与药丸标签），并修正同一 `call_id` 在「等待审批」与「执行完成」两个步骤被渲染成两张卡片的问题——现在合并为一张并保留最终状态；模型最后一步正文与最终输出节点内容重复渲染的问题也一并修掉。
+- **事件流兜底轮询**：新增看门狗，进行中的 Run 每 2 秒对账一次服务端视图。事件流一条都没到（旧服务、代理缓冲、断线）时用服务端视图补齐文本与工具气泡，Run 进入终态后停止轮询并整体刷新；界面同时提示「实时事件流不可用，已切换为轮询同步」。此前事件流失败会直接清空进行中的 Run，导致只能靠手动刷新才看到工具调用。
+
+### 新增（流式对话工作台）
+
+- **模型输出改为真实流式**：`DeepSeekProvider` 改用 `AsyncOpenAI` + `stream=True`（`stream_options.include_usage`），按 `on_delta` 回调逐段下发文本；assistant 消息按分片重建 `tool_calls`，多轮工具对话仍能通过 `tool_call_id` 续接。顺带修掉「同步客户端在 async 函数里阻塞事件循环」的隐患，同一进程的 SSE 推送因此才能实时。`OpenAIProvider` 同样支持 `on_delta`（responses 流式事件 + `response.completed`）
+- **进程内 Run 事件总线（`harness/streaming.py`）**：`RunEventBroker` 按 `run_id` 广播事件并保留最近 32 次 Run 的回放缓冲，`open()` 原子地返回「历史缓冲 + 实时队列」，因此「提交任务」与「打开流」之间的竞态既不丢事件也不重复。`AgentRunner` 在模型与工具转换处发出 `model.start` / `model.delta` / `model.end` / `tool.start` / `tool.end` / `phase`；`DurableAgentService` 在提交、等待审批与终态发出 `run.submitted` / `run.waiting` / `run.end`
+- **SSE 端点 `GET /v1/runs/{run_id}/stream`**：每帧 `data: {json}`，连接时先整体回放缓冲再续播实时事件，15 秒心跳注释帧保活，收到 `run.end` 后服务端主动收尾；`GET /v1/runs` 新增 `conversation_id` 过滤，用于按会话重建对话历史
+- **工作台前端重写为「工作区 + 对话」**：Markdown 渲染（`marked` + `DOMPurify` 消毒后注入）、模型文本逐字流式显示、工具调用卡片（工具名 / 参数 / 状态 / 返回内容 / 写入 diff，点击展开）、批准与拒绝按钮、停止运行
+- **测试**：`tests/test_run_stream.py` 覆盖事件序列与 `seq` 连续性、工具结果投影、**真实 HTTP 下的增量到达**（uvicorn 实跑，同时证明模型流式不阻塞事件循环）、迟到订阅者拿到完整回放、未知 Run 返回 404；前端 `src/__tests__/workspace.spec.ts` 覆盖流式增量归并、Markdown 渲染与消毒、工具卡片、审批后同流继续
+
+### 变更（前端简化）
+
+- **前端从「运行控制台」收敛为单一对话界面**：删除 `TimelineView` / `RunInspector` / `RunList` / `AgentSettings` / `SystemSettings` / `WorkspaceManager` / `WorkspaceView` / 主题与布局面板 / 命令面板 / 拖拽分栏 / Toast 等约 30 个组件、store 与样式文件，只保留工作区创建（含目录浏览）、会话列表、对话流与工具调用展示
+- **`harness/ui/static` 重新构建**：样式表 31.5 kB → 9.3 kB；脚本 133.6 kB → 161.5 kB（新增 Markdown 渲染与消毒依赖）
+- **`.env` / `requirements` 之外的构建依赖**：`frontend/package.json` 新增 `marked` 与 `dompurify`
+
+### 兼容（流式对话工作台）
+
+- `AgentRunner.run` / `advance`、`DurableAgentService.submit`、`PersistentAgentService.ask` 的既有调用方式不变：`emitter` / `events` 都是可选参数，不传时行为与 0.12.0 一致
+- **旧 Provider 自动降级**：`AgentRunner` 用签名探测判断 `generate()` 是否接受 `on_delta`，第三方 Provider 不实现流式也能照常运行（只是没有增量输出）
+- **前端 localStorage 键变化**：由 `mini-harness.workspace.v1` 继续复用，新增 `mini-harness.session.v1`；旧布局 / 主题键不再读取
+- **`DurableAgentService.submit()` 的新参数全部可选**：`workspace_id` / `workspace_path` / `knowledge_path` / `external_context` 不传时行为与 0.12 一致
+- **配额相关类型仍可导入**：`QuotaService` / `QuotaDecision` / `QuotaExceededError` 与 `InMemoryRunBudgetStore` / `SQLiteRunBudgetStore` 的 `consume()` 签名都保留，接了这些类型的代码不会因为升级而 `ImportError`——只是不再产生拒绝
+- **HTTP 契约不变**：Local 与 Platform 两套端点的路径、请求体与状态码未变，工作台仍然只在 `server.mode = "local"` 下挂载工作区 / 会话端点
+
+### 变更（配额与调用预算不再拦截个人运行）
+
+- **产品定位收敛：本地优先的个人工作台**。计量 / 账本 / 计费预览继续记录，但**不再有任何一种用量限制会拒绝一次提交**——面向个人的运行不必先配置套餐。
+- **`QuotaService.check_run_submission()` 退化为兼容门面**：保留签名与 `QuotaDecision` 形状，恒返回 `allowed=True` / `code="UNLIMITED"`；`CommercialPlatformService.submit_run()` 不再做配额判定，`QuotaExceededError` 保留定义但不再抛出
+- **调用预算移除**：`SecurityConfig.max_tool_calls_per_run` 默认由 `16` 改为 `None`，`DefaultToolPolicy` 不再返回 `SEC_TOOL_BUDGET_EXCEEDED`；`InMemoryRunBudgetStore` 与 `SQLiteRunBudgetStore` 的 `consume()` 保留原签名并恒返回 `True`（`durable_run_budget_calls` 表不再写入）。`HARNESS_MAX_TOOL_CALLS_PER_RUN` 已不再被读取
+- **仍然生效的安全与计量能力**：禁用清单（`[security].disabled_tools`）、副作用显式审批、输入 / 输出 Guard、JSONL 审计、Usage Ledger / Reconciler / Billing Preview / Plan Snapshot 全部照旧
+- **测试**：`test_monthly_token_quota_blocks_new_run` 改为 `test_monthly_usage_does_not_limit_personal_run_submission`（断言 `UNLIMITED`）；`tests/test_desktop_api.py` 新增 `test_legacy_step_and_tool_budgets_do_not_limit_personal_runs`
+
+### 变更（Durable 暂停 / 恢复与指令注入）
+
+- **暂停的运行会被 Worker 真正停住**：Claim 查询额外拾取 `status='waiting' AND cancel_requested=1`；Worker 每段推进前调用 `desktop.apply_instructions(state)` 并检查暂停标志，暂停时释放 Lease 回到 `pending`。释放 Lease 后会再确认一次暂停状态——否则「恢复」与「暂停」之间的竞态会让刚放下的 Run 立刻被重新 Claim 却仍然暂停
+- **`AgentExecutionState` 新增 `transition_data` / `applied_instructions`**：前者记录每段推进的耗时（`duration`，毫秒），后者记录已注入的附加指令；两者都进入 Durable 序列化，因此崩溃恢复与重跑之后不会重复注入同一条指令
+- **提交即落 step 0 checkpoint**：`DurableAgentService.submit()` 在入队前写入一条 `step_sequence=0` 的检查点，`/v1/runs/{run_id}/replay` 因此总能找到重跑起点
+- **`DurableAgentService.submit()` 新增 `workspace_id` / `workspace_path` / `knowledge_path` / `external_context`**：工作区目录与知识库目录随 Run 一起进入 Durable 状态，工具在重跑与恢复后仍能取到同一条路径
+
+### 修复（文档、配置来源与 0.13 语义对齐）
+
+- **`scripts/platform_smoke_test.py` 仍在断言「配额会拒绝提交」**：0.13 把 `QuotaService` 改成恒 `UNLIMITED` 之后，该断言必然失败（`python -m scripts.platform_smoke_test` 以退出码 1 结束）。现改为断言「允许提交 + `UNLIMITED`」，账本与计费预览的校验保持不变
+- **硬编码的版本号散落在三处**：`harness/app/server.py` 的 FastAPI `version` 与 `GET /healthz` 都写死 `"0.12.0"`（README 明确把该端点写成健康检查的一部分，却会一直返回旧版本），`ObservabilityConfig.service_version` 默认 `"0.11.0"`，`frontend/package.json` 与 lockfile 停在 `0.11.0`。现分别改为 `harness.__version__`（server 与 observability）与 `0.13.0`（前端包），版本号从此只有一个来源
+- **README 与 `.env.example` 曾把大量已被 `harness.toml` 取代的环境变量写成「仍然生效」**。实际只有 Provider 凭据（`DEEPSEEK_*` / `OPENAI_*` / `DASHSCOPE_*`）、`HARNESS_API_KEY_PEPPER` 与 `HARNESS_APP` 会被直接读取；其余设置一律来自 `harness.toml`，需要环境变量时请在 TOML 里写 `${VAR}` / `${VAR:-default}`。`.env.example` 已按此重写，删去 `HARNESS_MAX_INPUT_CHARS` / `OTEL_MODE` / `DEMO_MCP_URL` 等已不生效的条目
+- **README 的 Provider 调用点仍写着 `main.py build_runtime()`**：0.12 起 `main.py` 只有 13 行，组装在 `harness/app/assembly.py`，已更正
+- **`docs/plugins.md` 的测试路径写成 `harness/tests/...`**，实际是 `tests/test_app_config_plugins.py`
+
+## [0.12.0] - 2026-09-20
+
+### 新增（Open-Source DX & Backend Redesign）
+
+- **开发者门面 `HarnessApp`（`harness/app/application.py`）**：普通开发者只需要「配置 + Tool + Plugin」三件事，`app.tool` / `app.add_tool` / `app.use` / `app.build` / `app.ask` / `app.submit` / `app.get_run` / `app.approve` / `app.cancel` / `app.chat` / `app.create_http_app` / `app.cli`。`app.runtime` 是高级逃生口，`Registry` / `Store` / `Manager` / `UnitOfWork` / `DurableWorker` 一个都没删除，只是不再要求手工组装
+- **内部组合根（`harness/app/assembly.py`）**：Observability / Database / 四个 Durable Store / Security / Registry / RAG / MCP / ContextBuilder / Provider / ToolExecutor / AgentRunner / PersistentAgentService / DurableAgentService / DurableWorkerPool / 可选 Platform，全部收敛到 `assemble_runtime()`。原先散落在 `main.py` 的 1300+ 行组装逻辑整体迁入
+- **函数式 Tool 注册（`harness/app/tooling.py`）**：`to_tool()` 把普通带类型注解的函数转成内部 `Tool`（`inspect.signature` + `get_type_hints` → `pydantic.create_model(extra="forbid")` → `tool_from_pydantic`）。`@tool` / `@app.tool` 装饰器**返回原函数**，因此 Tool 逻辑可以直接单元测试。旧 `Tool` 对象与 `tool_list` 继续兼容，`app.add_tools` 会自动展开可迭代集合
+- **声明式配置（`harness/app/config.py`）**：`HarnessConfig` 十个分节（app / context / security / durable / observability / rag / mcp / plugins / server / platform）+ `load_config()`。支持 `${VAR}` 与 `${VAR:-default}` 展开；`harness.toml` **可选**，缺失即零配置启动
+- **Entry Point 插件（`harness/app/plugins.py`）**：`HarnessPlugin` 协议只需 `register(app)`；组名 `mini_harness.plugins`，`app.use(plugin)` 显式注册，`app.discover_plugins()` 按名发现。**默认不自动发现**——安装一个包不应等于执行它的代码
+- **可选依赖 Extras**：Core 收窄到 `openai` / `pydantic` / `python-dotenv` / `jsonschema` / `opentelemetry-api`；`[rag]` / `[mcp]` / `[observability]` / `[server]` / `[all]` / `[dev]` 按需安装
+- **Local-first HTTP Server（`harness/app/server.py`）**：`server.mode = "local"` 提供 `/healthz` 与 `/v1/runs`（提交 / 查询 / 审批 / 取消），由 Lifespan 托管 Durable Worker Pool；`server.mode = "platform"` 复用 Phase 11 Platform API
+- **Noop 层（`harness/app/noop.py`）**：关闭可选能力时 `NoopObservability` / `NoopMetrics` / `NoopSecurityService` 保持接口形状，内核因此没有 `if enabled:` 分支
+- **可执行错误（`harness/app/errors.py`）**：`FeatureDependencyError` 附带安装命令，`UnsafeServerConfigurationError` 阻止无认证 Local Server 绑定公网
+- **CLI（`harness/cli.py` + console_scripts）**：`mini-harness` 提供 `chat`（默认 Durable，`--immediate` 切 Immediate）/ `serve` / `doctor` / `plugins` / `security-check` / `durable-check` / `eval` / `platform-init`；`HARNESS_APP` 环境变量或 `main:app` 工厂定位项目应用
+- **`harness/app/checks.py`**：`run_security_check()` 与 `run_durable_check()` 移入包内（原先在 `main.py`），脚本与 CLI 共用同一实现
+- **内置 RAG Tool（`harness/app/features.py`）**：`build_rag_tool()` 让 Core 自带知识检索工具，不再依赖示例目录 `app_tools`
+- **仓库工程面**：`.github/workflows/ci.yml`（Install → Compile → Test → Build，Python 3.12/3.13）、`SECURITY.md`（信任边界与漏洞报告）、`docs/architecture.md`、`docs/migration-v0.11-to-v0.12.md`、`docs/plugins.md`、`examples/quickstart.py`、`examples/plugin_example.py`、`harness.toml`
+- **测试**：`tests/test_public_app.py`（装饰器保留原函数、Tool 注册冻结、Local HTTP）、`tests/test_app_config_plugins.py`（TOML `${VAR}` 展开、零配置、插件注册、loopback 保护）
+
+### 变更（Open-Source DX & Backend Redesign）
+
+- **`main.py` 从 1300+ 行缩到 11 行**：只做「加载配置 → 注册项目工具 → `app.cli()`」
+- **默认子命令由 `api` 变为 `chat`**：开源开发者第一次运行应该是本地对话，需要 HTTP 服务时显式 `serve`。Phase 11 的 Platform 入口降为可选扩展（`[platform].enabled = true`）
+- **默认模型 Provider 显式化为 DeepSeek**：`[app].provider` 默认 `"deepseek"`，`model` 不写时读 `DEEPSEEK_MODEL`；`provider = "openai"` 时走 `OpenAIProvider`（读 `OPENAI_*`）。两份实现都保留，组合根只是不再默认选择 OpenAI
+- **Embedding 固定使用 Qwen**：`[rag].enabled = true` 时组合根选择 `QwenEmbeddingProvider`（DashScope OpenAI 兼容模式，读 `DASHSCOPE_*`），`OpenAIEmbeddingProvider` 保留为可显式构造的实现。**RAG 因此不再需要 `OPENAI_API_KEY`**
+- **LLM Judge 默认 DeepSeek**：`mini-harness eval` 默认 `--judge-provider deepseek`，`--judge-provider openai` 保留切换能力
+- **`doctor` 按 Provider 检查环境变量**：默认检查 `DEEPSEEK_MODEL` / `DEEPSEEK_API_KEY`，启用 RAG 时额外要求 `DASHSCOPE_API_KEY`，`provider = "openai"` 时改查 `OPENAI_*`
+- **`harness/__init__.py` 定义公共 API**：只导出 `HarnessApp` / `HarnessConfig` / `HarnessPlugin` / `Tool` / `ToolContext` / `load_config` / `tool` 七个稳定符号；并在包入口加载 `.env`（不覆盖真实环境变量），避免 Phase 10 那类「`.env` 静默失效」问题
+- **`pyproject.toml`**：版本 0.12.0、`license-files`、classifiers、Extras 拆分、`[project.scripts] mini-harness = "harness.cli:main"`、`packages.find` 只包含 `harness*`
+- **`harness/security` 导出 `ProcessIsolationSandbox`** 等三个符号（原先只能从 `harness.security.sandbox` 子模块导入）
+
+### 修复（Open-Source DX & Backend Redesign）
+
+- **`harness/app/server.py` 的请求体模型被当成查询参数**：`SubmitRunRequest` 作为单一 Pydantic 参数时 FastAPI 默认按 query 解析，`POST /v1/runs` 返回 422 `loc=["query","body"]`；现显式标注 `Body(...)`
+- **延迟导入的 `BaseModel` 让请求体模型无法解析**：在函数内 `from pydantic import BaseModel` 会让字符串注解变成未解析的 `ForwardRef`，路由注册时抛 `PydanticUserError: not fully defined`；现把 `SubmitRunRequest` 提升到模块级定义（pydantic 属于 Core 依赖，不会把 FastAPI 变成硬依赖）
+- **隐藏的可选依赖泄漏**：`harness/retrieval/chroma_store.py` 在模块级 `import chromadb`，而原先只有它在 try 块内，缺 `[rag]` 时抛裸 `ImportError` 而非 `FeatureDependencyError`；现连同 `embeddings` / `projector` / `retriever` 一起放进 try，保证提示里带上安装命令。`_build_observability` 同样处理
+- **`RuntimeBundle` 的可变赋值**：`RuntimeBundle` 是普通（非 frozen）dataclass，`bundle.platform = ...` 直接赋值即可，不需要 `object.__setattr__`
+- **`app.chat` 与 `doctor` 对缺省子参数的假定**：`run_cli(["chat"])` 不带 `--immediate` 时 `args.immediate` 不存在；改用 `getattr(args, "immediate", False)`
+
+### 兼容（Open-Source DX & Backend Redesign）
+
+- **Phase 1–11 模块与构造签名零改动**：`PersistentAgentService`、`DurableAgentService`、`AgentRunner.run` / `advance`、`ToolExecutor`、`SecurityService`、`EvaluationRunner`、`CommercialPlatformService` 全部原样保留
+- **旧 `Tool` 与 `tool_list` 继续可用**：`app.add_tools(tool_list)` 自动展开
+- **`scripts/security_smoke_test.py` 改为从 `harness.app.checks` 导入**（原实现依赖 `main.py` 内部函数）
+- **环境变量继续生效**：`HARNESS_*` / `OTEL_*` / `MAX_*` 仍被各子系统直接读取，与 `harness.toml` 共存
+- **Phase 11 Platform 是可选扩展**：`sqlite` + `SQLitePlatformStore` 代码不变，只是不再默认启动
+
+### 新增（图形工作台）
 
 - **图形工作台（`harness/ui`）**：Codex 风格多窗体界面，支持边缘拖拽和键盘调整比例、布局记忆、响应式导航、深浅主题、任务搜索、草稿和对话保存、项目快照上下文、Markdown 导出。
 - **同源 API 连接**：FastAPI 首页提供工作台，`/ui` 提供打包静态资源；前端接入现有身份校验与任务提交、轮询、审批、取消和断线后恢复查询，API Key 仅存页面内存。
@@ -23,10 +147,6 @@
 - **运行记录在首轮即终止时丢失终态事件**：原实现只在状态「发生变化」时记录事件，若首次查询就返回 `completed` / `failed`，终态事件永远不会写入；现在先建立基线再比较
 - **运行记录上限裁剪方向错误**：原 `events.slice(-60)` 在超过 60 条时丢弃的是**最新**事件；现改为保留最近 60 条、丢弃最旧的
 - **`harness/ui/static/icon.svg` 会被构建删除**：该文件未入库且位于 `vite build` 的 `emptyOutDir` 目标目录中，首次构建即丢失；现迁移为 `frontend/public/icon.svg` 源资产并随构建输出
-
-### 计划中
-
-- 主体 Harness 教程（Phase 1–11）已完成。后续不再新增 Harness 核心能力，建议定义为 **Open Source Release Engineering / Production Hardening（开源发布工程 / 生产加固）**：架构文档、Public API Review、语义化版本与发行流程、GitHub Actions、PyPI / Dockerfile、PostgreSQL Adapter、迁移工具、生产部署指南、Benchmark 与示例应用
 
 ## [0.11.0] - 2026-09-20
 

@@ -36,12 +36,13 @@ class OpenAIProvider:
     #     ]
     
     # 发送模型请求
-    async def generate(self, * ,input_data , tools : list[dict] ,instructions: str | None = None , previous_response_id: str | None = None) -> ModelResult:
-        """调用模型生成一轮结果(同步)。
+    async def generate(self, * ,input_data , tools : list[dict] ,instructions: str | None = None , previous_response_id: str | None = None , on_delta = None) -> ModelResult:
+        """调用模型生成一轮结果(流式)。
         参数 input_data: 输入内容(字符串或工具结果列表，直接透传)
         参数 tools: 工具 schema 列表
         参数 instructions: 指令(服务端自动续接)
         参数 previous_response_id: 上一轮响应ID(服务端自动续接)
+        参数 on_delta: 可选增量回调，每收到一段文本增量立即调用一次
         返回: ModelResult(文本 + 工具调用 + 响应ID)
         """
 
@@ -57,13 +58,27 @@ class OpenAIProvider:
             },
         ) as span:
 
-            response = await self.client.responses.create(
+            stream = await self.client.responses.create(
                 model=self.model,
                 input=input_data,
                 tools=tools,
                 instructions=instructions,
-                previous_response_id=previous_response_id
+                previous_response_id=previous_response_id,
+                stream=True,
             )
+
+            response = None
+
+            async for event in stream:
+                if event.type == "response.output_text.delta":
+                    if on_delta is not None:
+                        on_delta(event.delta)
+                elif event.type == "response.completed":
+                    # 事件的 response 与一次性调用返回的对象同构，后续解析逻辑完全复用。
+                    response = event.response
+
+            if response is None:
+                raise RuntimeError("OpenAI responses 流在结束时没有返回 response.completed 事件")
 
             # 记录使用情况
             usage = response.usage

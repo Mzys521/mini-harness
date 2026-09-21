@@ -49,3 +49,8 @@ class ToolContext:
     permissions: frozenset[str] = field(
         default_factory=frozenset
     )
+    workspace_id: str | None = None
+    # 工作区「绑定目录」的绝对路径与知识库目录：由服务端在提交 Run 时解析一次，
+    # 这样工具只需要一个纯上下文，不必回头去问数据库或服务对象。
+    workspace_path: str | None = None
+    knowledge_path: str | None = None

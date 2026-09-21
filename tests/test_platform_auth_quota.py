@@ -54,7 +54,7 @@ def test_api_key_only_stores_digest_and_revoke_works(tmp_path) -> None:
         manager.authenticate(issued.secret)
 
 
-def test_monthly_token_quota_blocks_new_run(tmp_path) -> None:
+def test_monthly_usage_does_not_limit_personal_run_submission(tmp_path) -> None:
     _, store = build_store(tmp_path)
     tenant = store.create_tenant(
         tenant_id="tenant_q",
@@ -77,8 +77,8 @@ def test_monthly_token_quota_blocks_new_run(tmp_path) -> None:
         metadata={},
     )
     decision = quota.check_run_submission(tenant=tenant, plan=plan)
-    assert decision.allowed is False
-    assert decision.code == "QUOTA_INPUT_TOKENS_EXCEEDED"
+    assert decision.allowed is True
+    assert decision.code == "UNLIMITED"
 
 
 def test_billing_uses_immutable_usage_ledger(tmp_path) -> None:

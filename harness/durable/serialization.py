@@ -26,6 +26,9 @@ def execution_to_dict(
         "current_input": state.current_input,
         "tool_context": {
             "run_id": state.tool_context.run_id,
+            "workspace_id": state.tool_context.workspace_id,
+            "workspace_path": state.tool_context.workspace_path,
+            "knowledge_path": state.tool_context.knowledge_path,
             "user_id": state.tool_context.user_id,
             "tenant_id": state.tool_context.tenant_id,
             "permissions": sorted(
@@ -88,6 +91,8 @@ def execution_to_dict(
             },
         },
         "final_output": state.final_output,
+        "transition_data": state.transition_data,
+        "applied_instructions": state.applied_instructions,
         "error_message": state.error_message,
     }
 
@@ -180,6 +185,13 @@ def execution_from_dict(
             )
         ),
         tool_context=ToolContext(
+            workspace_id=tool_context_data.get("workspace_id"),
+            workspace_path=tool_context_data.get(
+                "workspace_path"
+            ),
+            knowledge_path=tool_context_data.get(
+                "knowledge_path"
+            ),
             run_id=tool_context_data[
                 "run_id"
             ],
@@ -249,6 +261,8 @@ def execution_from_dict(
         final_output=data.get(
             "final_output"
         ),
+        transition_data=data.get("transition_data", {}),
+        applied_instructions=data.get("applied_instructions", []),
         error_message=data.get(
             "error_message"
         ),

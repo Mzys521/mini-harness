@@ -1,0 +1,47 @@
+# 文件：harness.toml
+# mini-harness 0.13：开源默认配置。
+# 没有这个文件也能启动；这个文件只在需要声明式配置时使用。
+
+[app]
+name = "mini-harness"
+# Provider 默认 deepseek；model 不写时读取 DEEPSEEK_MODEL。
+provider = "deepseek"
+database_path = "data/harness.db"
+system_instruction = "你是运行在 mini-harness 中的 Agent。工具权限、审批、幂等与恢复由 Harness 决定。"
+
+[security]
+enabled = true
+approval_required_for_side_effects = true
+
+[durable]
+enabled = true
+worker_count = 2
+
+# 默认关闭额外组件，按需开启并安装对应 extra。
+[observability]
+enabled = false
+
+# RAG 开启后，Embedding 使用 Qwen（DashScope OpenAI 兼容模式），读取 DASHSCOPE_*。
+[rag]
+enabled = false
+
+[mcp]
+enabled = false
+servers = []
+
+[plugins]
+# 安装第三方插件后，推荐先显式 app.use(plugin)。
+# 只有明确希望自动发现时再打开，避免无意执行第三方包代码。
+auto_discover = false
+names = []
+
+[server]
+enabled = false
+mode = "local"
+host = "127.0.0.1"
+port = 8008
+allow_unsafe_public_no_auth = false
+
+# Phase 11 多租户/配额/计费保留为可选 Extension；OSS Quickstart 不要求它。
+[platform]
+enabled = false

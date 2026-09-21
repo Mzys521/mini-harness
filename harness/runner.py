@@ -1,4 +1,6 @@
 # 文件：harness/runner.py
+from typing import Any, Callable
+
 from harness.context.models import (
     WorkingState,
 )
@@ -13,6 +15,7 @@ from harness.models import (
     SecurityDecisionRecord,
     ToolExecutionRecord,
 )
+from harness.streaming import accepts_keyword
 from harness.tools.result import (
     ToolStatus,
 )
@@ -29,7 +32,8 @@ class AgentRunner:
         context_builder,
         observability,
         system_instruction: str,
-        max_steps: int = 8,
+        max_steps: int | None = None,
+        emitter: Callable[[str, dict[str, Any]], Any] | None = None,
     ) -> None:
         self.model = model
         self.registry = registry
@@ -40,6 +44,17 @@ class AgentRunner:
             system_instruction
         )
         self.max_steps = max_steps
+        # 事件出口（通常是 RunEventBroker.publish）；为 None 时退化为纯批处理。
+        self.emitter = emitter
+        # 旧 Provider 的 generate() 没有 on_delta，探测一次即可保持向后兼容。
+        self.supports_streaming = emitter is not None and accepts_keyword(
+            getattr(model, "generate", None),
+            "on_delta",
+        )
+
+    def _emit(self, run_id: str, event: dict[str, Any]) -> None:
+        if self.emitter is not None:
+            self.emitter(run_id, event)
 
     def create_execution(
         self,
@@ -103,38 +118,49 @@ class AgentRunner:
             state.phase
             == ExecutionPhase.MODEL
         ):
-            return await self._advance_model(
+            advanced = await self._advance_model(
                 state
             )
-
-        if (
+        elif (
             state.phase
             == ExecutionPhase.TOOL
         ):
-            return await self._advance_tool(
+            advanced = await self._advance_tool(
                 state,
                 pause_on_approval=(
                     pause_on_approval
                 ),
             )
+        else:
+            raise RuntimeError(
+                "unknown execution phase: "
+                f"{state.phase}"
+            )
 
-        raise RuntimeError(
-            "unknown execution phase: "
-            f"{state.phase}"
+        self._emit(
+            advanced.run_id,
+            {
+                "type": "phase",
+                "phase": advanced.phase.value,
+                "transition": advanced.transition_count,
+            },
         )
+        return advanced
 
     async def _advance_model(
         self,
         state: AgentExecutionState,
     ) -> AgentExecutionState:
-        if (
-            state.model_step
-            >= self.max_steps
-        ):
-            raise RuntimeError(
-                "agent exceeded "
-                f"max_steps={self.max_steps}"
+        step = state.model_step + 1
+        self._emit(state.run_id, {"type": "model.start", "step": step})
+
+        def on_delta(text: str) -> None:
+            self._emit(
+                state.run_id,
+                {"type": "model.delta", "step": step, "text": text},
             )
+
+        streaming_kwargs = {"on_delta": on_delta} if self.supports_streaming else {}
 
         with self.observability.span(
             "agent.model_transition",
@@ -152,9 +178,6 @@ class AgentRunner:
                     ),
                     instructions=(
                         state.instructions
-                        if state.previous_response_id
-                        is None
-                        else None
                     ),
                     tools=(
                         self.registry.openai_schemas()
@@ -162,10 +185,17 @@ class AgentRunner:
                     previous_response_id=(
                         state.previous_response_id
                     ),
+                    **streaming_kwargs,
                 )
             )
 
         state.model_step += 1
+        state.transition_data = {
+            "name": "模型响应", "input": state.current_input,
+            "output": model_result.text,
+            "tokens": model_result.usage.total_tokens,
+            "calls": [{"name": c.name, "arguments": c.arguments} for c in model_result.tool_calls],
+        }
         state.transition_count += 1
         state.previous_response_id = (
             model_result.response_id
@@ -173,6 +203,24 @@ class AgentRunner:
         state.evidence.model_usage = (
             state.evidence.model_usage
             + model_result.usage
+        )
+
+        self._emit(
+            state.run_id,
+            {
+                "type": "model.end",
+                "step": state.model_step,
+                "text": model_result.text,
+                "tokens": model_result.usage.total_tokens,
+                "tool_calls": [
+                    {
+                        "call_id": call.call_id,
+                        "name": call.name,
+                        "arguments": dict(call.arguments),
+                    }
+                    for call in model_result.tool_calls
+                ],
+            },
         )
 
         if not model_result.tool_calls:
@@ -215,6 +263,16 @@ class AgentRunner:
             )
             return state
 
+        self._emit(
+            state.run_id,
+            {
+                "type": "tool.start",
+                "call_id": call.call_id,
+                "name": call.name,
+                "arguments": dict(call.arguments),
+            },
+        )
+
         tool_result = (
             await self.executor.execute(
                 call,
@@ -222,6 +280,19 @@ class AgentRunner:
             )
         )
         state.transition_count += 1
+
+        self._emit(
+            state.run_id,
+            {
+                "type": "tool.end",
+                "call_id": call.call_id,
+                "name": call.name,
+                "status": tool_result.status.value,
+                "output": tool_result.to_model_output(),
+                "error_code": tool_result.error_code,
+                "security_code": tool_result.security_code,
+            },
+        )
 
         state.evidence.tool_executions.append(
             ToolExecutionRecord(
@@ -241,6 +312,13 @@ class AgentRunner:
                 ),
             )
         )
+        state.transition_data = {
+            "name": call.name, "input": call.arguments,
+            "output": tool_result.to_model_output(), "tokens": 0,
+            "status": tool_result.status.value,
+            "error_code": tool_result.error_code,
+            "call_id": call.call_id,
+        }
 
         for security_code in (
             tool_result.security_codes

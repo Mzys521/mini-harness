@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 from harness.platform.errors import (
     AuthenticationError,
     AuthorizationError,
-    QuotaExceededError,
     ResourceNotFoundError,
     TenantSuspendedError,
 )
@@ -68,21 +67,6 @@ class CommercialPlatformService:
     ):
         self._require_scope(principal, "runs:create")
         tenant, plan = self._tenant_and_plan(principal.tenant_id)
-        decision = self.quota.check_run_submission(
-            tenant=tenant,
-            plan=plan,
-        )
-        if not decision.allowed:
-            if self.metrics is not None:
-                self.metrics.platform_quota_denials.add(
-                    1,
-                    {"code": decision.code},
-                )
-            raise QuotaExceededError(
-                code=decision.code,
-                detail=decision.reason,
-            )
-
         result = await self.durable.submit(
             user_id=principal.api_key_id,
             tenant_id=tenant.id,

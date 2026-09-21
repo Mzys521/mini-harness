@@ -55,8 +55,10 @@ def main() -> None:
         run_id=None,
         metadata={},
     )
+    # 0.13 起配额退化为兼容门面：用量照常记账，但不再有上限会拒绝提交。
     decision = quota.check_run_submission(tenant=tenant, plan=plan)
-    assert decision.allowed is False
+    assert decision.allowed is True
+    assert decision.code == "UNLIMITED"
 
     start, end = utc_month_window()
     preview = BillingService(store=store).preview(

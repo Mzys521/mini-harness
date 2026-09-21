@@ -7,7 +7,7 @@ class SecurityConfig:
 
     max_input_chars: int = 16_000
     max_output_chars: int = 32_000
-    max_tool_calls_per_run: int = 16
+    max_tool_calls_per_run: int | None = None
 
     # Prompt Injection Signal 默认只审计，避免关键词误杀正常请求。
     detect_prompt_injection_signals: bool = True

@@ -54,29 +54,9 @@ class InMemoryRunBudgetStore:
         self._calls: dict[str, set[str]] = {}
         self._lock = Lock()
 
-    def consume(
-        self,
-        *,
-        run_id: str,
-        limit: int,
-        key: str | None = None,
-    ) -> bool:
-        budget_key = key or f"anonymous:{len(self._calls.get(run_id, set()))}"
-
-        with self._lock:
-            seen = self._calls.setdefault(
-                run_id,
-                set(),
-            )
-
-            if budget_key in seen:
-                return True
-
-            if len(seen) >= limit:
-                return False
-
-            seen.add(budget_key)
-            return True
+    def consume(self, *, run_id: str, limit: int | None = None, key: str | None = None) -> bool:
+        """Legacy API retained for callers; personal runs have no call budget."""
+        return True
 
     def clear(
         self,

@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import uuid
+from time import perf_counter
 
 from harness.durable.models import (
     DurableLeaseLostError,
@@ -111,6 +112,21 @@ class DurableWorker:
                         previous_phase = (
                             state.phase
                         )
+                        desktop = getattr(self.lifecycle, "desktop", None)
+                        if desktop is not None:
+                            desktop.apply_instructions(state)
+                            if desktop.is_paused(record.run_id):
+                                self.durable_store.save_claimed(
+                                    run_id=record.run_id, worker_id=self.worker_id,
+                                    expected_version=version, execution=state,
+                                    status=DurableRunStatus.WAITING,
+                                    trace_carrier=inject_current_context(), release_lease=True,
+                                    lease_seconds=self.config.lease_seconds,
+                                )
+                                # Resume can arrive between the pause check and lease release.
+                                if not desktop.is_paused(record.run_id):
+                                    desktop.execute("UPDATE durable_runs SET status='pending' WHERE run_id=? AND status='waiting' AND lease_owner IS NULL", (record.run_id,))
+                                return True
 
                         # WAITING 状态不应该继续消耗 Worker。
                         if state.phase in {
@@ -148,10 +164,12 @@ class DurableWorker:
                             ),
                         )
 
+                        started = perf_counter()
                         state = await self.runner.advance(
                             state,
                             pause_on_approval=True,
                         )
+                        state.transition_data["duration"] = round((perf_counter() - started) * 1000)
 
                         if (
                             state.phase

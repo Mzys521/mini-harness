@@ -52,6 +52,8 @@ class AgentExecutionState:
     )
     final_output: str | None = None
     error_message: str | None = None
+    transition_data: dict[str, Any] = field(default_factory=dict)
+    applied_instructions: list[str] = field(default_factory=list)
 
     @property
     def current_tool_call(
