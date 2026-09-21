@@ -23,8 +23,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/healthz": "http://127.0.0.1:8008",
-      "/v1": "http://127.0.0.1:8008",
+      "/healthz": process.env.HARNESS_API_URL ?? "http://127.0.0.1:8008",
+      "/v1": process.env.HARNESS_API_URL ?? "http://127.0.0.1:8008",
     },
   },
 });

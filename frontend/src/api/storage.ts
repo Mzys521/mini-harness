@@ -34,6 +34,5 @@ export function writeJSON(key: string, value: unknown): void {
 
 export const STORAGE_KEYS = {
   workspace: "mini-harness.workspace.v1",
-  layout: "mini-harness.layout.v1",
-  theme: "mini-harness.theme.v1",
+  session: "mini-harness.session.v1",
 } as const;

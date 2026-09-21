@@ -1,18 +1,20 @@
 {
   "name": "mini-harness-workspace",
   "private": true,
-  "version": "0.11.0",
+  "version": "0.13.0",
   "type": "module",
   "description": "mini-harness workspace frontend (Vue 3 + TypeScript + Vite).",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "npm run typecheck && vite build",
     "build:only": "vite build",
-    "typecheck": "vue-tsc --noEmit",
+    "typecheck": "vue-tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "test": "vitest run",
     "preview": "vite preview"
   },
   "dependencies": {
+    "dompurify": "^3.4.15",
+    "marked": "^15.0.12",
     "pinia": "^2.2.6",
     "vue": "^3.5.13"
   },
