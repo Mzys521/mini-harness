@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mini-harness"
-version = "0.13.0"
+version = "0.14.0"
 description = "A lightweight, production-grade Agent Harness with explicit runtime, tools, security and durable execution."
 readme = "README.md"
 requires-python = ">=3.11"

@@ -34,6 +34,13 @@ def execution_to_dict(
             "permissions": sorted(
                 state.tool_context.permissions
             ),
+            "tool_names": (
+                None
+                if state.tool_context.tool_names is None
+                else sorted(
+                    state.tool_context.tool_names
+                )
+            ),
         },
         "phase": state.phase.value,
         "model_step": state.model_step,
@@ -205,6 +212,16 @@ def execution_from_dict(
                 tool_context_data.get(
                     "permissions",
                     [],
+                )
+            ),
+            tool_names=(
+                None
+                if tool_context_data.get(
+                    "tool_names"
+                )
+                is None
+                else frozenset(
+                    tool_context_data["tool_names"]
                 )
             ),
         ),

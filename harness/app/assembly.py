@@ -2,15 +2,20 @@
 from __future__ import annotations
 
 import os
+from copy import copy
+from dataclasses import replace
 from typing import Iterable
 
 from harness import __version__
-from harness.application import PersistentAgentService
 from harness.app.config import HarnessConfig
 from harness.app.errors import FeatureDependencyError
-from harness.app.features import build_rag_tool
+from harness.app.features import build_rag_tool, create_rag_write_tool
 from harness.app.noop import NoopMetrics, NoopObservability, NoopSecurityService
+from harness.app.personal import AutomationScheduler, PersonalCatalog, submit_local
+from harness.app.personal_store import PersonalStore
 from harness.app.runtime import RuntimeBundle
+from harness.app.temporary_chat import TemporaryChats
+from harness.application import PersistentAgentService
 from harness.context.budget import ApproxTokenCounter, TokenBudget
 from harness.context.builder import ContextBuilder
 from harness.context.policy import ContextPolicy
@@ -112,27 +117,62 @@ def _build_security(config, *, approval_store, budget_store, observability, metr
     )
 
 
-async def _register_rag(config: HarnessConfig, registry, observability, metrics) -> None:
+async def _register_rag(
+    config: HarnessConfig,
+    registry,
+    database,
+    observability,
+    metrics,
+):
     """RAG Extension：向量检索由 Chroma 承担，Embedding 固定使用 Qwen（DashScope）。
 
     chromadb 与 chroma_store 一起放进 try：chroma_store 在模块级 import chromadb，
     而 chromadb 属于 [rag] extra，隐藏的模块级依赖只有在这里捕获才能转成可执行提示。
+
+    返回 `KnowledgeRepositoryCatalog`（多 RAG 仓库），供 HTTP 层使用；未启用时返回 None。
     """
     if not config.rag.enabled:
-        return
+        return None
     try:
+        import chromadb
+
+        from harness.retrieval.catalog import KnowledgeRepositoryCatalog
         from harness.retrieval.chroma_store import ChromaVectorStore
+        from harness.retrieval.chunkers import CharacterChunker
         from harness.retrieval.embeddings import QwenEmbeddingProvider
         from harness.retrieval.projector import RetrievalContextProjector
         from harness.retrieval.retriever import DenseRetriever, RetrievalPipeline
+        from harness.retrieval.store import SQLiteKnowledgeRepositoryStore
     except ImportError as exc:
         raise FeatureDependencyError("rag", 'pip install "mini-harness[rag]"') from exc
 
     # model 为 None 时由 QwenEmbeddingProvider 读取 DASHSCOPE_MODEL。
     embedding_provider = QwenEmbeddingProvider(model=config.rag.embedding_model)
+    projector = RetrievalContextProjector()
+
+    # 一个进程只开一份 Chroma client，默认集合与各仓库集合共用它。
+    client = chromadb.PersistentClient(path=config.rag.path)
+
+    # 多仓库：仓库与文件元数据在 SQLite，向量按仓库分集合（一个仓库一个 collection）。
+    catalog = KnowledgeRepositoryCatalog(
+        store=SQLiteKnowledgeRepositoryStore(database),
+        embedding_provider=embedding_provider,
+        chunker=CharacterChunker(),
+        vector_store_factory=lambda repository: ChromaVectorStore(
+            path=config.rag.path,
+            collection_name=repository.collection_name,
+            client=client,
+        ),
+        storage_path=config.rag.storage_path,
+        observability=observability,
+        metrics=metrics,
+    )
+
+    # 旧的单集合路径完整保留：schema 与行为都不变，只是额外支持按 repository_id 检索。
     vector_store = ChromaVectorStore(
         path=config.rag.path,
         collection_name=config.rag.collection_name,
+        client=client,
     )
     pipeline = RetrievalPipeline(
         retriever=DenseRetriever(
@@ -146,17 +186,46 @@ async def _register_rag(config: HarnessConfig, registry, observability, metrics)
         build_rag_tool(
             name=config.rag.tool_name,
             retrieval_pipeline=pipeline,
-            projector=RetrievalContextProjector(),
+            projector=projector,
+            catalog=catalog,
         )
     )
+    # Agent 写入 RAG 仓库的唯一入口：声明副作用 + 强制审批。
+    registry.register(
+        create_rag_write_tool(
+            name=config.rag.write_tool_name,
+            catalog=catalog,
+        )
+    )
+    return catalog
 
 
-async def _register_mcp(config: HarnessConfig, registry, observability, metrics) -> None:
+async def _register_mcp(
+    config: HarnessConfig,
+    registry,
+    database,
+    observability,
+    metrics,
+):
+    """MCP Extension：harness.toml 静态配置 + 前端登记（持久化）的 Server 一起生效。
+
+    返回 (MCPManager, SQLiteMCPServerStore)；未启用时返回 (None, None)。
+    静态与持久化的 Server 都在构建期注册，因此属于「能力在运行开始前确定」的一部分。
+    """
     if not config.mcp.enabled:
-        return
+        return None, None
     try:
-        from harness.mcp.config import MCPServerConfig, MCPTransport
+        # 显式确认可选依赖存在：client.py 现在是延迟导入 SDK，若不在构建期检查，
+        # 「启用 MCP 但没装 extra」会退化成第一次发现工具时才失败。
+        import mcp  # noqa: F401
+
+        from harness.mcp.config import (
+            UNTRUSTED_TOOL_POLICY,
+            MCPServerConfig,
+            MCPTransport,
+        )
         from harness.mcp.manager import MCPManager
+        from harness.mcp.store import SQLiteMCPServerStore
     except ImportError as exc:
         raise FeatureDependencyError("mcp", 'pip install "mini-harness[mcp]"') from exc
 
@@ -178,12 +247,27 @@ async def _register_mcp(config: HarnessConfig, registry, observability, metrics)
                 ),
             )
         )
+
+    # 前端登记过的 Server 在重启后要回来；同名冲突以 harness.toml 为准。
+    store = SQLiteMCPServerStore(database)
+    configured = {item.name for item in config.mcp.servers}
+    for persisted in store.get_servers():
+        if persisted.name in configured:
+            continue
+        servers.append(
+            replace(
+                persisted,
+                default_tool_policy=UNTRUSTED_TOOL_POLICY,
+            )
+        )
+
     manager = MCPManager(
         servers,
         observability=observability,
         metrics=metrics,
     )
     await manager.register_all_tools(registry)
+    return manager, store
 
 
 def _build_model_provider(config: HarnessConfig, *, observability, metrics):
@@ -268,11 +352,23 @@ async def assemble_runtime(
     registry = ToolRegistry()
     from harness.app.desktop import DesktopService
     desktop = DesktopService(database, config)
+    personal = PersonalCatalog(PersonalStore(database), desktop)
     for registered_tool in tools:
         registry.register(registered_tool)
+    if config.server.mode == 'local':
+        for personal_tool in personal.tools():
+            registry.register(personal_tool)
 
-    await _register_rag(config, registry, observability, metrics)
-    await _register_mcp(config, registry, observability, metrics)
+    knowledge = await _register_rag(
+        config, registry, database, observability, metrics
+    )
+    mcp, mcp_store = await _register_mcp(
+        config, registry, database, observability, metrics
+    )
+
+    # 构建期结束：注册表封板，此后只接受 dynamic 注册（前端登记 MCP Server）。
+    # 可复现性由 AgentRunner 在每个 Run 创建时写入 ToolContext.tool_names 的快照承担。
+    registry.freeze()
 
     context_builder = ContextBuilder(
         budget=TokenBudget(
@@ -365,7 +461,33 @@ async def assemble_runtime(
         model=model_provider,
         desktop=desktop,
         events=events,
+        knowledge=knowledge,
+        mcp=mcp,
+        mcp_store=mcp_store,
+        personal=personal,
     )
+
+    # Same execution kernel, with no persistence/telemetry or callable tools.
+    private_model = copy(model_provider)
+    for attribute, value in (('observability', NoopObservability()), ('metrics', NoopMetrics()), ('store_responses', False)):
+        if hasattr(private_model, attribute):
+            setattr(private_model, attribute, value)
+    if hasattr(private_model, '_histories'):
+        private_model._histories = {}
+    private_registry = ToolRegistry()
+    private_registry.freeze()
+    private_runner = AgentRunner(
+        model=private_model, registry=private_registry, executor=ToolExecutor(private_registry),
+        context_builder=context_builder, observability=NoopObservability(),
+        system_instruction=config.app.system_instruction, max_steps=1,
+        emitter=lambda run_id, event: bundle.temporary.emit(run_id, event),
+    )
+    bundle.temporary = TemporaryChats(private_runner, personal)
+
+    async def scheduled_submit(**kwargs):
+        return await submit_local(bundle, config, **kwargs)
+
+    bundle.scheduler = AutomationScheduler(personal, scheduled_submit)
 
     if config.platform.enabled:
         bundle.platform = build_platform_runtime(config, bundle)

@@ -30,6 +30,7 @@ class DeepSeekProvider:
         self.model = model or os.getenv("DEEPSEEK_MODEL")
         self.observability = observability
         self.metrics = metrics
+        self.store_responses = True
         self._histories : dict[str , list[dict]] = {}    # 本地历史: response_id -> messages
 
 
@@ -190,9 +191,12 @@ class DeepSeekProvider:
             total_tokens = usage.total_tokens if usage is not None else 0
             cached_input_tokens = 0
 
-            # 记录缓存输入token数
-            if usage is not None and usage.prompt_tokens_details is not None:
-                cached_input_tokens = usage.prompt_tokens_details.cached_tokens or 0
+            # 兼容 DeepSeek 原生缓存字段及 OpenAI 兼容字段。
+            cache_count = getattr(usage, "prompt_cache_hit_tokens", None)
+            if cache_count is None:
+                details = getattr(usage, "prompt_tokens_details", None)
+                cache_count = getattr(details, "cached_tokens", None)
+            cached_input_tokens = cache_count or 0
 
             if span is not None:
                 span.set_attribute("gen_ai.usage.input_tokens", input_tokens)
@@ -217,13 +221,14 @@ class DeepSeekProvider:
             assistant_message["tool_calls"] = raw_calls
         messages.append(assistant_message)
 
-        if response_id is not None:
+        if response_id is not None and self.store_responses:
             self._histories[response_id] = messages    # 以本次响应ID保存完整历史，供下一轮续接
 
         return ModelResult(
             text = text,
             tool_calls=tool_calls,
             response_id=response_id,
+            cache_usage_reported=cache_count is not None,
             usage=ModelUsage(
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,

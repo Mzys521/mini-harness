@@ -1,4 +1,6 @@
 # 文件：harness/runner.py
+from dataclasses import replace
+from time import perf_counter
 from typing import Any, Callable
 
 from harness.context.models import (
@@ -67,6 +69,18 @@ class AgentRunner:
         external_context: str | None = None,
     ) -> AgentExecutionState:
         """把 Model Context 投影为可序列化的初始执行状态。"""
+        # 能力快照：本次 Run 能看到哪些工具，在创建时就固定下来并进入 Durable 状态。
+        # 因此运行期登记的工具（MCP Server）只影响之后新建的 Run，已在跑的 Run
+        # 既不会被授予新能力，崩溃恢复后也仍按原快照执行。
+        if tool_context.tool_names is None:
+            tool_context = replace(
+                tool_context,
+                tool_names=frozenset(
+                    tool.name
+                    for tool in self.registry.list_tools()
+                ),
+            )
+
         state = (
             working_state
             or WorkingState(
@@ -162,6 +176,7 @@ class AgentRunner:
 
         streaming_kwargs = {"on_delta": on_delta} if self.supports_streaming else {}
 
+        started = perf_counter()
         with self.observability.span(
             "agent.model_transition",
             {
@@ -180,7 +195,9 @@ class AgentRunner:
                         state.instructions
                     ),
                     tools=(
-                        self.registry.openai_schemas()
+                        self.registry.openai_schemas(
+                            state.tool_context.tool_names
+                        )
                     ),
                     previous_response_id=(
                         state.previous_response_id
@@ -189,11 +206,25 @@ class AgentRunner:
                 )
             )
 
+        # 单次模型请求快照：耗时包括首字等待，不包含工具和审批等待。
+        usage = model_result.usage
+        budget = getattr(self.context_builder, "budget", None)
+        metrics = {
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "total_tokens": usage.total_tokens,
+            "cached_input_tokens": (
+                usage.cached_input_tokens if model_result.cache_usage_reported else None
+            ),
+            "duration_ms": (perf_counter() - started) * 1000,
+            "context_window": getattr(budget, "max_context_tokens", None),
+        }
         state.model_step += 1
         state.transition_data = {
             "name": "模型响应", "input": state.current_input,
             "output": model_result.text,
             "tokens": model_result.usage.total_tokens,
+            "metrics": metrics,
             "calls": [{"name": c.name, "arguments": c.arguments} for c in model_result.tool_calls],
         }
         state.transition_count += 1
@@ -212,6 +243,7 @@ class AgentRunner:
                 "step": state.model_step,
                 "text": model_result.text,
                 "tokens": model_result.usage.total_tokens,
+                "metrics": metrics,
                 "tool_calls": [
                     {
                         "call_id": call.call_id,

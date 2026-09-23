@@ -1,12 +1,24 @@
+import logging
+
 import chromadb
-from harness.retrieval.models import Chunk , RetrievalResult
+
+from harness.retrieval.models import Chunk, RetrievalResult
 from harness.retrieval.vector_store import VectorStore
 
+logger = logging.getLogger(__name__)
+
 class ChromaVectorStore(VectorStore):
-    def __init__(self , * , path : str , collection_name : str) -> None:
-        self.client = chromadb.PersistentClient(path = path)
-        self.collection = self.client.get_or_create_collection(
-            name = collection_name,
+    def __init__(self , * , path : str , collection_name : str , client = None) -> None:
+        # client 可复用：多个 RAG 仓库各占一个集合，但共用同一个 PersistentClient，
+        # 避免为每个仓库重复打开同一份本地索引。
+        self.path = path
+        self.collection_name = collection_name
+        self.client = client or chromadb.PersistentClient(path = path)
+        self.collection = self._open_collection()
+
+    def _open_collection(self):
+        return self.client.get_or_create_collection(
+            name = self.collection_name,
             embedding_function=None,
             configuration={
                 "hnsw" : {
@@ -14,7 +26,7 @@ class ChromaVectorStore(VectorStore):
                 }
             }
         )
-    
+
     def upsert(self , * ,chunks : list[Chunk] , embeddings: list[list[float]]) -> None:
         if len(chunks) != len(embeddings):
             raise ValueError("chunks 与 embeddings 的长度不一致")
@@ -75,6 +87,18 @@ class ChromaVectorStore(VectorStore):
         self.collection.delete(where={
             "document_id": document_id
         })
+
+    def delete_all(self) -> None:
+        """丢弃整个集合（删除 RAG 仓库），随后重新打开一个空集合，保证幂等。"""
+        try:
+            self.client.delete_collection(self.collection_name)
+        except Exception as exc:  # noqa: BLE001 - 集合不存在时删除是幂等操作
+            logger.debug(
+                "向量集合 %s 删除时不存在或已被删除：%s",
+                self.collection_name,
+                exc,
+            )
+        self.collection = self._open_collection()
 
 
 

@@ -28,7 +28,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
     response = await fetch(path, {
       ...init,
       cache: "no-store",
-      signal: AbortSignal.timeout(20_000),
+      signal: init.signal ?? AbortSignal.timeout(20_000),
       headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
     });
   } catch (error) {

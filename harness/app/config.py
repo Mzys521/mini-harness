@@ -91,6 +91,9 @@ class RagSettings:
     path: str = "data/chroma"
     collection_name: str = "knowledge_v1"
     tool_name: str = "search_knowledge_base"
+    # 多 RAG 仓库：仓库文件原文的落盘根目录，以及 Agent 写入工具名。
+    storage_path: str = "data/rag"
+    write_tool_name: str = "rag_write_file"
 
 
 @dataclass(frozen=True)

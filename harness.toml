@@ -22,11 +22,17 @@ worker_count = 2
 enabled = false
 
 # RAG 开启后，Embedding 使用 Qwen（DashScope OpenAI 兼容模式），读取 DASHSCOPE_*。
+# 多 RAG 仓库：仓库元数据落在 SQLite，向量按仓库分集合；文件原文写入 storage_path。
+# 前置条件：pip install -e ".[rag]"；只开开关不装依赖会在构建期直接报 FeatureDependencyError。
 [rag]
-enabled = false
+enabled = true
+storage_path = "data/rag"
 
+# 前端登记 MCP Server 需要这个开关；harness.toml 里的 servers 是静态配置，
+# 与前端登记的（持久化在 SQLite）共同生效，同名时以本文件为准。
+# 前置条件：pip install -e ".[mcp]"。
 [mcp]
-enabled = false
+enabled = true
 servers = []
 
 [plugins]

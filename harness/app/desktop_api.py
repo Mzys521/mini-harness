@@ -31,7 +31,7 @@ class KnowledgePath(Payload):
 
 
 class SessionInput(Payload):
-    workspace_id: str
+    workspace_id: str | None = None
     title: str = "新任务"
 
 
@@ -145,7 +145,9 @@ def install_desktop_routes(api, harness_app, runtime):
         return {"removed": True, "files_retained": True}
 
     @api.get("/v1/sessions")
-    def sessions(workspace_id: str, archived: bool = False):
+    def sessions(workspace_id: str = '', archived: bool = False):
+        if not workspace_id:
+            return {"items": service.rows("SELECT *,'' AS workspace_id FROM desktop_chats WHERE archived=? ORDER BY created_at DESC", (int(archived),))}
         service.workspace(workspace_id)
         # 归档会话默认不返回，但列表里始终带上 archived 字段，前端可自行分组。
         return {"items": service.rows("SELECT * FROM desktop_sessions WHERE workspace_id=? AND archived=? ORDER BY created_at DESC", (workspace_id, 1 if archived else 0))}

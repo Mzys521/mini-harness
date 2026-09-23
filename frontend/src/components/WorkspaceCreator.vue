@@ -7,7 +7,7 @@ import { useChat, type DirectoryListing } from '@/stores/chat';
  * Workspace creation. A path can be typed directly or picked from the server's
  * own directory listing (`/v1/directories`), which never exposes file contents.
  */
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: []; created: [] }>();
 const chat = useChat();
 const path = ref('');
 const name = ref('');
@@ -29,7 +29,7 @@ async function browse(target?: string): Promise<void> {
 async function submit(): Promise<void> {
   if (!path.value.trim()) return;
   await chat.createWorkspace({ path: path.value.trim(), name: name.value.trim(), create: create.value });
-  if (!chat.error) emit('close');
+  if (!chat.error) { emit('created'); emit('close'); }
 }
 
 onMounted(() => void browse());

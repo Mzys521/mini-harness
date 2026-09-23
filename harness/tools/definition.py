@@ -54,3 +54,8 @@ class ToolContext:
     # 这样工具只需要一个纯上下文，不必回头去问数据库或服务对象。
     workspace_path: str | None = None
     knowledge_path: str | None = None
+    # 本次 Run 可用工具的冻结快照。AgentRunner 在 create_execution 时写入，
+    # 之后既用于筛选发给模型的 schema，也用于执行前的准入判断——因此运行期
+    # 新增（例如前端登记的 MCP Server）不会改变已经在跑的 Run 的能力集合。
+    # None 表示“不限制”，用于不经过 Runner 的直接调用（测试与旧调用方）。
+    tool_names: frozenset[str] | None = None

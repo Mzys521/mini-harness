@@ -1,10 +1,14 @@
-# mini-harness
+<p align="center">
+  <img src="frontend/public/icon.svg" width="88" height="88" alt="Mini Harness logo">
+</p>
+
+<h1 align="center">mini-harness</h1>
 
 > 一个分阶段演进的迷你 LLM Agent 框架：工具运行时、上下文工程、状态持久化
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-v0.13.0-purple)
+![Version](https://img.shields.io/badge/Version-v0.14.0-purple)
 ![Status](https://img.shields.io/badge/Status-Phase%2013%20%28Streaming%20Workbench%29%20Done-brightgreen)
 
 ## 目录
@@ -28,7 +32,7 @@
 
 ## 简介
 
-mini-harness 是一个分阶段演进的 LLM Agent 框架（Harness），目标是从内核出发，逐步补全一个生产级 Agent 系统所需的全部基础设施。项目按 13 个阶段推进，**Phase 1–13 全部完成（v0.13.0）**。
+mini-harness 是一个分阶段演进的 LLM Agent 框架（Harness），目标是从内核出发，逐步补全一个生产级 Agent 系统所需的全部基础设施。项目按 14 个阶段推进，**Phase 1–14 全部完成（v0.14.0）**。
 
 从 v0.10.0 起采用一条固定规则：**旧能力 + 新能力 = 新版本**，不再用「新增片段」覆盖「旧完整文件」而导致既有能力消失。
 
@@ -52,7 +56,9 @@ if __name__ == "__main__":
 
 **Phase 13 把「Harness 能力」落成一个可以直接用的本地工作台**，由三件事组成：① 模型输出改为**真实流式**，进程内 `RunEventBroker` 加 SSE 端点把 `model.delta` / `tool.start` / `run.waiting` 实时推给界面，前端从「提交后轮询」变成「边跑边看」；② 业务工具整体下沉到应用层 `app_tools/`，框架不再内置任何业务工具，工作区目录通过 `ToolContext` 注入，因此工具可以脱离数据库直接单元测试；③ 产品定位收敛为**本地优先的个人工作台**——配额与调用预算不再拦截个人运行。升级前请读 [0.12 → 0.13 迁移说明](docs/migration-v0.12-to-v0.13.md)。
 
-已完成的 Phase 1–13 把「模型会调用工具」与「谁可以使用它」拆解成十个可独立演进的子系统：
+**Phase 14 补齐「多知识库 + 开放工具生态 + 个人工作台」**，四个部分是：① RAG 从单集合升级为**多仓库**——`KnowledgeRepositoryCatalog` 让一个仓库对应一份独立向量集合（删除仓库即丢弃整份集合，不必按 metadata 反选），chunk 带齐 `filename` / `repository_id` / `uploaded_at` / `embedding_model` 硬契约，Agent 写入走 `create_rag_write_tool()` 且**必须经用户审批**；② MCP Server 在工作台里**登记即发现并注册**，`SQLiteMCPServerStore` 让登记的 Server 重启后仍在（发现失败不落库；未声明策略的远端工具一律按 `UNTRUSTED_TOOL_POLICY` 处理，即「有副作用 + 需审批」）；③ 工具注册表在 build 期 `freeze()` 之上增加**运行期动态层**，「这次运行能用哪些工具」固定进 `ToolContext.tool_names` 并进入 Durable 序列化，因此新工具只对**之后提交**的 Run 可见，已在跑或崩溃恢复的 Run 仍按原快照执行；④ 工作台补上普通对话、临时对话（内存、不落库）、技能、使用习惯与本地定时任务。本版无需数据迁移，两处行为变化见 [CHANGELOG](CHANGELOG.md) 的「兼容」一节。
+
+已完成的 Phase 1–14 把「模型会调用工具」与「谁可以使用它」拆解成十个可独立演进的子系统：
 
 - **工具运行时**：统一工具定义（JSON Schema）、Pydantic → Schema 工厂、JSON Schema 参数校验（拒绝外部 `$ref`）、权限检查、超时控制、重试策略、统一结果对象
 - **上下文工程**：Token 预算与安全边距、分区组装指令（系统指令 + 工作状态 + 检索知识 + 外部上下文）、历史窗口与超预算裁剪（记录丢弃消息数）
@@ -64,11 +70,11 @@ if __name__ == "__main__":
 - **安全（Security）**：输入 / 输出 Guard（长度、Prompt Injection 信号、Secret 脱敏）、确定性 Tool Policy（禁用清单 / 副作用与显式审批）、Approval 与 JSONL 审计、Process Isolation Adapter（明确标注：非强 OS 沙箱）。**注意**：0.13 起 Tool Call Budget 不再拦截运行（`max_tool_calls_per_run` 默认 `None`）
 - **持久执行（Durable Execution）**：可序列化的 `AgentExecutionState`、SQLite Durable Queue、Lease + 乐观版本、持久审批（跨进程恢复）、幂等记录与对账（`STARTED` / `COMPLETED` / `UNCERTAIN`）、崩溃恢复、取消、暂停与恢复、附加指令注入、跨 Worker Trace 传播、进程内结构化并发（`asyncio.TaskGroup`）
 - **商业平台（Commercial Platform）**：Tenant / Plan / API Key（高熵生成，库里只存 HMAC 摘要）/ Principal、API Scope 与 Tool Permission 分离、Usage Ledger 与幂等事件、Usage Reconciler、Plan Snapshot 冻结、Billing Preview（整数 micro-USD + Decimal）、Admin Control Plane API、对象级授权（越权返回 404 而非 403）、RFC 9457 `application/problem+json`、FastAPI HTTP Surface 与 Lifespan 托管 Worker / Reconciler。0.13 起 **Quota 退化为兼容门面**（`QuotaDecision` 恒为 `UNLIMITED`）：用量照常计量与记账，但不再有配额会拒绝提交
-- **流式对话工作台（Local Workbench）**：进程内 `RunEventBroker`（按 `run_id` 广播 + 最近 32 次 Run 的回放缓冲）、SSE 端点 `GET /v1/runs/{run_id}/stream`、真实流式模型输出、工作区 / 会话 / 知识库的本地端点，以及「创建工作区 + 对话」的单页前端
+- **流式对话工作台（Local Workbench）**：进程内 `RunEventBroker`（按 `run_id` 广播 + 最近 32 次 Run 的回放缓冲）、SSE 端点 `GET /v1/runs/{run_id}/stream`、真实流式模型输出、工作区 / 会话 / 知识库的本地端点，以及带页面导航与项目会话树的单页前端
 
 应用层有两条并存的执行路径：`PersistentAgentService`（Immediate Mode，把运行器与持久化编排在一起，支持多轮会话）与 `DurableAgentService` + `DurableWorkerPool`（Durable Mode，把 Run 交给持久状态机由 Worker 分段推进）；两者之上叠加 `CommercialPlatformService`（Control Plane，只包裹不侵入 Runtime）。模型层通过 Provider 适配，目前支持 DeepSeek（chat 接口）与 OpenAI（responses 接口），可平滑替换。观测能力以横切方式注入各子系统，不改动既有业务逻辑。
 
-## 已实现能力（Phase 1–13）
+## 已实现能力（Phase 1–14）
 
 | 模块 | 阶段 | 能力 |
 | --- | --- | --- |
@@ -78,8 +84,8 @@ if __name__ == "__main__":
 | `harness/context` | P3 | `TokenBudget` 预算、`ApproxTokenCounter` 估算、`ContextPolicy` + `sources`（恢复）、`ContextBuilder` 分区组装指令 + 历史窗口与超预算裁剪 |
 | `harness/state` | P4 | Conversation / Run / Step / Checkpoint / RuntimeEvent 模型、ID 生成 |
 | `harness/persistence` | P4·P7·P10 | 完整 SQLite 建表脚本（含 Durable Tables）、Repository 仓储（含会话历史 `list_recent`）、UnitOfWork 事务边界 + `persistence.transaction` span；WAL 与迁移兼容 |
-| `harness/retrieval` | P5·P7·P11 | 文档加载 / 字符切分 / 稳定 ID / 嵌入（**默认 `QwenEmbeddingProvider`**，`OpenAIEmbeddingProvider` 保留）/ 向量存储（Chroma）/ 稠密检索 / 重排 / 证据投影；`retrieval.search` span 与检索指标 |
-| `harness/mcp` | P6·P7 | MCP 网关（HTTP·STDIO）、工具发现与适配、工具策略、资源读取、可选服务器降级；`mcp.tool.call` span 与 MCP 指标 |
+| `harness/retrieval` | P5·P7·P11·**P14** | 文档加载 / 字符切分 / 稳定 ID / 嵌入（**默认 `QwenEmbeddingProvider`**，`OpenAIEmbeddingProvider` 保留）/ 向量存储（Chroma）/ 稠密检索 / 重排 / 证据投影；`retrieval.search` span 与检索指标。P14 追加**多 RAG 仓库**（`catalog.py` 编排 + `store.py` 元数据，一个仓库一份独立集合，chunk 必须带 `filename`/`repository_id`/`uploaded_at`/`embedding_model`） |
+| `harness/mcp` | P6·P7·**P14** | MCP 网关（HTTP·STDIO）、工具发现与适配、工具策略、资源读取、可选服务器降级；`mcp.tool.call` span 与 MCP 指标。P14 追加**运行期注册**（`SQLiteMCPServerStore` 持久化前端登记的 Server，`MCPManager.register_server()` 发现后注册进工具注册表动态层；未声明策略的远端工具按 `UNTRUSTED_TOOL_POLICY` 处理） |
 | `harness/observability` | P7·P11 | OTel 引导（Console / File / OTLP 导出）、`Observability.span` 封装、`HarnessMetrics` 指标集（Phase 11 追加 platform 认证失败 / 用量事件指标；`platform_quota_denials` 计数器保留但 0.13 起不再自增）、结构化 JSON 日志、模型成本核算、`shutdown_observability()` 冲刷 |
 | `harness/evaluation` | P8·P11 | `EvaluationRunner` 评测编排、JSONL 数据集加载与格式校验、确定性评估器（答案包含 / 必需工具 / 禁止工具 / 最大步数）、可选 LLM Judge（**默认 `DeepSeekJudgeEvaluator`**；`OpenAIJudgeEvaluator` 完整保留）、JSON 报告与质量门、回归基线对比 |
 | `harness/security` | P9·**P13** | `SecurityService` 输入 / 输出检查、Guard（长度 / Prompt Injection 信号 / Secret 脱敏）、`DefaultToolPolicy`（禁用 / 审批）、`InMemoryApprovalStore` / `InMemoryRunBudgetStore`、`JsonlAuditSink`、`ProcessIsolationSandbox`（进程隔离 Adapter）。**0.13 起 Tool Call Budget 不再拦截运行**（`consume()` 保留为恒 `True` 的兼容门面） |
@@ -89,7 +95,7 @@ if __name__ == "__main__":
 | `harness/ui` | P11 | 对话工作台的静态托管（`STATIC_DIRECTORY`）与独立预览入口（`python -m harness.ui`，仅文件服务）；`static/` 为 Vue 3 + TypeScript 前端的**构建产物**，源码在 `frontend/` |
 | `harness/app` | **P12**·**P13** | **开发者门面层**：`HarnessApp`（`@app.tool` / `add_tool` / `use` / `build` / `ask` / `submit` / `chat` / `serve` / `cli`）、`HarnessConfig` + `load_config`（TOML + `${VAR}` 展开）、`tooling.to_tool`（typed callable → Tool）、`plugins`（Entry Point 发现）、`assembly`（内部组合根）、`server`（Local HTTP + loopback 保护）、`checks`、`noop`（Noop Observability / Metrics / Security）。P13 追加 `desktop.py`（工作区 / 会话 / 知识库 / 控制的服务层）与 `desktop_api.py`（仅 Local 模式挂载的 `/v1/workspaces`、`/v1/sessions`、`/v1/runs/{id}/stream` 等路由） |
 | `harness/cli.py` | **P12** | `mini-harness` 命令行入口：`chat` / `serve` / `doctor` / `plugins` / `security-check` / `durable-check` / `eval` / `platform-init` |
-| `frontend` | P11·**P13** | 工作台前端源码：Vue 3 `<script setup>` + Pinia + Vite，只做「工作区创建 + 工作区内对话」两件事——Markdown 渲染（`marked` + `DOMPurify`）、SSE 逐字流式显示、工具调用卡片与批准/拒绝；`npm run test` 用 vitest + jsdom 覆盖流式增量与 Markdown |
+| `frontend` | P11·P13·**P14** | Vue 3 + Pinia + Vite；项目会话树、普通/临时对话、RAG 创建上传、定时任务、SKILL.md 导入、使用习惯、Markdown/SSE 与审批、主题/字体和布局设置 |
 | `harness/application.py` | P6·P7·P8 | `PersistentAgentService`：多轮会话 / 运行 / 消息落库与状态迁移，包住 Runner 并回传 `RunEvidence`（工具执行事实与模型用量） |
 | `main.py` | **P12** | 项目入口，13 行：加载 `harness.toml`、`app.add_tools(all_tools())` 注册应用层工具、`app.cli()`。原 Composition Root 逻辑整体迁入 `harness/app/assembly.py` |
 | `app_tools` | P2·P5·P9·**P13** | **应用层工具包**：所有工具都在这里定义并按 `calculator.py` 的统一格式导出 `tool_list`（`__init__.py` 汇总为 `all_tools()`）——计算器、`create_note` 副作用工具、工作区工具 `workspace_list` / `read` / `write` / `command` / `knowledge_search`；框架层不 import 本包 |
@@ -114,6 +120,7 @@ if __name__ == "__main__":
 | 11 | Commercial Platform | 已完成 | Tenant / Plan / API Key 认证与 Principal、Usage Ledger 与 Reconciler、Billing Preview、Admin Control Plane API、FastAPI HTTP Surface + Lifespan 托管 Worker（Quota 于 0.13 降为兼容门面） |
 | 12 | Open-Source DX & Backend Redesign | 已完成 | `HarnessApp` 门面、函数式 Tool 注册、声明式 `harness.toml`、Entry Point 插件、可选依赖 Extras、Local-first Server、`harness.app` 内部组合根 |
 | 13 | Streaming Workbench & App-Layer Tools | 已完成 | 真实流式模型输出、`RunEventBroker` + SSE、工作区 / 会话 / 知识库的本地端点、业务工具下沉到 `app_tools/`、前端收敛为「工作区 + 对话」、个人运行不再受配额与调用预算限制 |
+| 14 | Multi-RAG, Runtime MCP & Personal Workbench | 已完成 | 多个相互隔离的 RAG 仓库（创建 / 删除 / 文件清单 / 经审批的 Agent 写入）、前端登记 MCP Server 后自动发现并注册工具、工具能力按 Run 快照固定、普通对话 / 临时对话 / 技能 / 使用习惯 / 本地定时任务、输入区用量指标 |
 
 ## 快速开始
 
@@ -478,7 +485,7 @@ mini-harness serve         # 默认 http://127.0.0.1:8008
 
 ### 对话工作台
 
-工作台只有两件事：**创建工作区** 与 **在工作区里对话**。前端为 **Vue 3 + TypeScript + Vite + Pinia**，构建产物已入库，因此运行时不需要 Node.js，静态资源由 FastAPI 同源提供：
+工作台支持**项目对话、普通对话与临时对话**，左侧提供 Pull Request、定时任务、技能、插件与探索；“新对话”入口位于导航最上方，对话列表位于项目下方，使用习惯并入左下角设置。前端为 **Vue 3 + TypeScript + Vite + Pinia**，构建产物已入库，因此运行时不需要 Node.js，静态资源由 FastAPI 同源提供：
 
 ```bash
 # Local 模式：无需 API Key，无认证，仅监听 loopback
@@ -486,16 +493,70 @@ mini-harness serve
 # 打开 http://127.0.0.1:8008/
 ```
 
-- **工作区**：输入目录路径，或从服务端目录列表里逐级点选；目录不存在时可勾选创建。工作区绑定一个本地目录，Agent 的文件读写与命令执行都限制在它内部，路径越界会被拒绝。
+- **项目与工作区**：侧栏「项目」下每个文件夹对应一个工作区，会话嵌套在其下；多个项目可独立展开。悬浮标题显示 ＋，悬浮项目行显示新建会话图标；新建位于展开箭头前，整行共享背景。目录层级只属于界面组织，不向项目目录写聊天文件。工作区可通过路径或目录选择器添加，文件读写与命令限制在绑定目录内。
+- **普通与临时对话**：导航最上方「新对话」直接创建普通会话，无需工作区。普通对话可保存、归档和删除；右上角虚线气泡图标（悬停提示“临时对话”）进入虚线边框的聊天区。临时对话读取使用习惯和所选技能，不调用工具、不更新长期记忆；结束、离开、刷新或关闭页面后清除，异常断开最长 30 分钟过期。不会写入本应用的 SQLite、运行/审计日志、事件回放或内置 Provider 历史缓存。模型请求仍发送给配置的服务商，本地不留存不代表服务商零日志。
+- **使用习惯与技能**：「设置 → 使用习惯」保存默认语言、表达偏好等；项目、普通、临时及定时对话每次提交都会读取。普通/项目对话也可要求记住偏好，默认审批后追加。技能页支持创建、编辑、启停、删除及导入带 `name` / `description` 元数据的 `SKILL.md`，输入区选择最多 8 个启用技能；仅加载指令，不执行脚本或附带资源。停用/删除技能后，依赖它的定时任务需重新创建或恢复技能。
+- **定时任务**：页面手动创建，或在普通/项目对话中提出具体任务与时间，批准后创建。支持单次和固定间隔重复，可暂停、启用、删除并查看执行对话；每次执行建立对应项目或普通会话。Local 服务运行时才调度，重启后积压只补一次；崩溃发生在提交期间时标记中断，需要检查会话后重新安排。写文件等副作用仍按原审批策略处理，不是无人值守的自动授权。
 - **流式对话**：提交任务后前端订阅 `GET /v1/runs/{run_id}/stream`，模型文本按增量逐字显示，并以 Markdown 渲染（标题、列表、表格、代码块、引用）。`marked` 的输出经 `DOMPurify` 消毒后才注入，模型输出始终按不可信内容处理。
-- **工具调用可见**：每次调用是一张卡片——工具名、参数、状态（执行中 / 等待批准 / 完成 / 失败 / 已跳过）；点击展开可看完整返回内容，`workspace_write` 直接给出修改前后的 diff。
+- **活动展示**：服务端已有的思考、执行步骤与工具调用按「图标 + 类型 + 摘要」逐条默认收起；点击查看正文、参数、状态、工具结果与写入 diff，最终答复直接显示。
 - **人在回路**：`workspace_write` 与 `workspace_command` 需要批准。运行停在等待状态时，对话里出现批准 / 拒绝按钮；批准后**同一条事件流继续**输出，不需要刷新页面。
 - **会话与历史**：一个工作区可以有多个会话。切换会话时按 `conversation_id` 拉取历史 Run，用与实时流相同的结构重建对话（用户指令 → 工具调用 → 最终答案）。会话在发送第一条指令时自动命名（不再是清一色的「新任务」），侧栏提供 **归档 / 恢复** 与 **删除**；删除会二次确认，并连带清理该会话的 Run、步骤、检查点与消息，正在执行中的会话会被拒绝删除（409）。
-- **断线不重跑**：事件总线为每次 Run 保留回放缓冲（最近 32 次），页面刷新或另开客户端重新连接时先整体回放、再续播实时事件，因此既不会丢内容也不会重复执行。重连后的重放帧按事件序号去重；万一事件流完全不可用（旧服务、代理缓冲、长断线），前端会自动降级为轮询同步并在界面上说明，文本与工具调用仍会收敛到服务端真相。
+- **普通/项目对话断线不重跑**：事件总线为每次 Run 保留回放缓冲（最近 32 次），刷新后先回放再续播；重放帧按序号去重。事件流不可用时自动降级轮询。临时对话不使用该持久化及回放路径，断开后结束。
+
+- **外观与布局**：左下角设置提供深色 / 浅色 / 纸张 / 跟随系统主题，以及衬线（默认）/ 无衬线 / 等宽字体；设置和布局保存在浏览器。拖动侧栏边界或输入区上边界调整大小，边界不绘制滑块，保留键盘调整与双击复位。输入区为圆角卡片，聊天及代码滚动条采用低对比圆角细条，悬停加宽并突出显示；高对比模式保留系统滚动条。项目 Logo 统一用于网页与本文档。
+- **知识库与其他能力**：探索页可创建 RAG 知识库、上传 UTF-8 文本并查看索引文件，供项目对话检索；需安装 `[rag]` extra 并启用 `[rag].enabled`、配置 Embedding 凭据。未启用时显示具体提示。插件页只读展示 MCP；Pull Request 尚无管理后端，仍为说明页；不添加语音等不支持的功能。
+
+页面使用 Hash 路由，不新增路由依赖或服务端 URL 重写；支持刷新、浏览器前进/后退与会话地址直接打开。普通/项目对话切换到辅助页面保留草稿和事件流；离开临时对话会清除内容。
+
+| 页面 | 地址 | 当前能力 |
+| --- | --- | --- |
+| 项目对话 | `#/chat?workspace=<工作区ID>&session=<会话ID>` | 工作区内聊天、审批与会话管理 |
+| 普通对话 | `#/chat?session=<会话ID>` 或 `#/chat` | 无需项目，持久化聊天 |
+| 临时对话 | `#/temporary` | 内存会话，结束后清除；刷新不恢复 |
+| Pull Request | `#/pull-requests` | 尚未接入的能力说明 |
+| 定时任务 | `#/automations` | 创建、暂停/启用、删除、查看执行结果 |
+| 技能 | `#/skills` | 指令技能管理与 SKILL.md 导入 |
+| 使用习惯（设置） | `#/preferences`（兼容旧链接） | 打开设置浮窗的使用习惯分类，保留当前对话 |
+| 插件 | `#/plugins` | `GET /v1/mcp/servers`，服务与工具清单 |
+| 探索 | `#/explore` | RAG 知识库创建、文件上传与清单 |
+
+新增 Local API（不在 Platform 模式挂载）：
+
+| API | 用途 |
+| --- | --- |
+| `GET/PUT /v1/preferences` | 读取 / 保存个人使用习惯 |
+| `GET/POST /v1/skills`、`PUT/DELETE /v1/skills/{id}` | 技能管理 |
+| `POST /v1/skills/import` | `{ "document": "SKILL.md 全文" }` |
+| `GET/POST /v1/automations`、`PATCH/DELETE /v1/automations/{id}` | 调度管理；PATCH 接收 `enabled` |
+| `POST /v1/temporary-chats` | 创建内存会话 |
+| `POST /v1/temporary-chats/{id}/messages` | `{input, skill_ids?}`，返回 SSE |
+| `POST /v1/temporary-chats/{id}/end` | 清除内存并取消生成，可重复调用 |
+
+`POST /v1/sessions` 的 `workspace_id` 现为可选，空值创建普通对话；`GET /v1/sessions` 不传工作区时列出普通对话。`POST /v1/runs` 可传 `skill_ids`。调度创建参数为 `name`、`prompt`、带时区的 ISO8601 `run_at`、`interval_seconds`（0 单次，否则至少 60 秒）、可选 `workspace_id` 和 `skill_ids`。普通对话只暴露创建任务与保存偏好工具，项目文件操作仍需项目会话。
 
 > `python -m harness.ui` 只是静态预览：它仅提供文件服务，没有 API 与 Worker，因此没有工作区与对话能力。
 
 > **工作台面向 Local 模式**（`server.mode = "local"`）。工作区 / 会话 / 事件流都是本地端点；Platform 模式（多租户 + API Key）继续提供 Phase 11 的 Run API，但不会挂载工作区端点，此时工作台只提供静态外壳。
+
+### 设置与对话阅读
+
+左下角「设置」打开浮窗，左侧分类、右侧内容，包含外观与字体、自定义配色、对话指标、使用习惯。支持自定义强调色及页面背景、面板、文字、边框颜色，通过拾色器或六位 HEX 输入即时预览并保存在当前浏览器；文字对比度不足时提示。关闭自定义开关或「恢复主题配色」可恢复主题原色，不重置字体、布局或使用习惯。使用习惯仍由本地服务保存，读取失败时不会提供空白覆盖保存。
+
+输入框下方提供 **11px 小字、16px 行高与 SVG 图标**的指标栏，可在「设置 → 对话指标」分别选择显示内容，全部关闭即隐藏，选择保存在浏览器。数据在每次模型请求结束后更新；普通、项目和临时对话均可使用，临时数据随会话清除。
+
+| 指标 | 当前统计口径 |
+| --- | --- |
+| 缓存命中率 | 最近一轮各模型请求的缓存输入 token / 输入 token；Provider 未报告缓存明细时显示 `—`，不冒充 0% |
+| 输出速度 | 最近一轮输出 token / 模型请求总耗时，单位 tok/s；包括首字等待，不含工具执行与审批等待 |
+| 已用 token | 最近一轮各模型请求的输入 + 输出累计值（含重复上下文），悬浮可看完整数值；不是上下文占用 |
+| 上下文余量 | `≈ 配置窗口 − 最近一次请求输入 − 输出`，最低为 0；不含草稿和下一次新增指令，不代表模型实际最大窗口 |
+| 轮数与步数（默认关闭） | 当前会话轮数及最近一轮已完成的模型请求数 |
+
+旧服务、旧历史记录或尚未取得用量时，不可用指标显示 `—`。升级后需重启本地服务，才能让新请求产生耗时与缓存明细；旧记录不补造数据。
+
+精确 token 计算已纳入后续规划，见 [Token 计量规划](docs/token-accounting-plan.md)：接入匹配模型版本的 tokenizer，统计最终发送的完整请求、工具定义与多模态开销，区分发送前计数和 Provider 实际用量，并验证历史裁剪、重试、缓存与流式计量。当前上下文余量仍明确为估算。
+
+聊天正文和输入框采用最大 880px 的居中阅读宽度，正文两侧及轮次之间增加留白。右侧短横线按轮次排列，当前阅读位置高亮；悬浮或键盘聚焦显示提问、回复摘要与状态，点击定位对应轮次并暂停自动跟随，可用「回到最新」恢复。定位栏支持上下方向键、Home / End、Escape，尊重减少动画偏好；长会话可在横线区域滚动，空对话不显示。普通、项目与临时对话共用此组件，摘要不额外持久化。
 
 ### 前端源码与构建
 
@@ -511,9 +572,10 @@ npm run test         # vitest + jsdom：流式增量归并、Markdown 渲染与�
 
 ```
 frontend/src/
-├─ App.vue       工作区侧栏 + 对话主区（含批准 / 拒绝 / 停止）
-├─ components/   MarkdownText（marked + DOMPurify）· ToolCallCard（参数/状态/输出/diff）· WorkspaceCreator
-├─ stores/       chat（工作区 / 会话 / 轮次 / SSE 事件归并）
+├─ App.vue       页面导航 + 项目侧栏 + 对话主区（含批准 / 拒绝 / 停止）
+├─ components/   ProjectTree · CapabilityPage · WorkspaceCreator · MarkdownText · ToolCallCard · AppearanceSettings
+├─ stores/       chat（按工作区分组的会话 / 轮次 / SSE）· appearance（主题与字体）
+├─ composables/  useWorkbenchRoute（Hash 路由）· usePanelLayout（布局尺寸）
 ├─ api/          client（唯一 fetch 出口 + EventSource 流）· storage（localStorage 容错端口）
 └─ styles/       app.css（单文件主题与全部样式）
 ```
@@ -540,6 +602,12 @@ Local 模式（`mode = "local"`，默认）——**无认证、无 Scope**，只
 | `PATCH /v1/sessions/{id}` · `DELETE /v1/sessions/{id}` | 会话重命名 / 归档 / 恢复，以及删除（含 Run、步骤、检查点与消息；执行中的会话返回 409） |
 | `GET /v1/workspaces/{id}/files` · `/file` | 工作区内文件浏览与文本预览（限制在目录边界内） |
 | `GET /v1/workspaces/{id}/knowledge` · `/knowledge/upload` · `/knowledge/import` | 工作区知识库：列表、上传与从本地文件导入 |
+| `GET` · `POST` `/v1/knowledge/repositories` | **多 RAG 仓库**：列出 / 创建（仓库之间相互隔离，各自一份独立向量集合） |
+| `GET` · `DELETE` `/v1/knowledge/repositories/{id}` | 仓库详情 / 删除（连同向量集合与文件记录） |
+| `GET /v1/knowledge/repositories/{id}/files` | **仓库内文件清单**：文件名 / chunk 数 / 向量化模型 / 上传时间 |
+| `POST /v1/knowledge/repositories/{id}/files?filename=` | 上传文件并建索引（原始请求体即文件内容，同名视为覆盖） |
+| `GET` · `POST` `/v1/mcp/servers` | **运行期 MCP**：列出已生效的 Server 与其贡献的工具 / 提交 MCP 信息后自动发现并注册工具 |
+| `DELETE /v1/mcp/servers/{name}` | 摘除运行期登记的 Server 与它的工具（`harness.toml` 静态配置的不可删） |
 | `GET /` · `/ui/*` | 对话工作台（`/` 返回 index.html，`/ui` 提供静态资源） |
 
 Platform 模式（`mode = "platform"`）——**需要 `X-API-Key` 与 Scope**：
@@ -659,8 +727,13 @@ python -m scripts.smoke_test
 ### 运行测试
 
 ```bash
-python -m pytest tests -q
+pytest -q
+# 含真实 MCP stdio 与 Chroma 集成测试的环境：
+pip install -e ".[all,dev]"
+pytest -q tests/test_optional_integrations.py
 ```
+
+CI 除 Python 3.12/3.13 的常用依赖测试外，另在 Python 3.12 安装 `.[all,dev]`，验证 MCP 与 Chroma 的真实连接路径。Core 环境缺少对应 Extra 时，集成测试会跳过；全量依赖作业先检查两者可导入，避免误将跳过当作覆盖。
 
 ## 运行流程
 
@@ -724,11 +797,14 @@ mini-harness/
 ├── pyproject.toml             # 元数据、Core 依赖、Extras、console_scripts、pytest / ruff / mypy
 ├── .env.example               # 仅列出真正被直接读取的环境变量（凭据 + Pepper；`.env` 被 .gitignore 排除）
 ├── SECURITY.md / CONTRIBUTING.md / CHANGELOG.md / LICENSE
+├── AGENT.md                   # 给后续 agent 的施工规范：架构硬约束、依赖方向、命名、当前设计
+├── HANDOFF.md                 # 交接状态：本轮完成内容、改动文件、兼容性、实测结果、下一步
 ├── .github/workflows/ci.yml   # Install → Compile → Test → Build
 ├── docs/
 │   ├── architecture.md        # 开发者层与内部执行层边界、Public vs Internal API
 │   ├── migration-v0.11-to-v0.12.md
 │   ├── migration-v0.12-to-v0.13.md  # 环境变量收敛、配额与调用预算变化
+│   ├── token-accounting-plan.md     # 精确 token 计量规划（tokenizer / 完整请求计数 / Provider 对账，待实施）
 │   └── plugins.md             # 插件契约与 Entry Point 规范
 ├── examples/                  # quickstart.py / plugin_example.py
 ├── harness/
@@ -745,6 +821,12 @@ mini-harness/
 │   │   ├── server.py          #   Local HTTP API + loopback 保护
 │   │   ├── desktop.py         #   P13：工作区 / 会话 / 知识库 / 控制的服务层
 │   │   ├── desktop_api.py     #   P13：工作区、会话与事件流路由（仅 Local 模式）
+│   │   ├── knowledge_api.py   #   P14：RAG 仓库路由（仅 Local 模式，未启用时返回 503）
+│   │   ├── mcp_api.py         #   P14：MCP Server 登记 / 摘除路由
+│   │   ├── personal.py        #   P14：使用习惯 / 技能 / 调度业务
+│   │   ├── personal_api.py    #   P14：个人工作台路由
+│   │   ├── personal_store.py  #   P14：个人数据访问层（只做 SQL）
+│   │   ├── temporary_chat.py  #   P14：内存临时对话（不落库、不进审计）
 │   │   ├── checks.py          #   security-check / durable-check
 │   │   ├── runtime.py         #   RuntimeBundle（高级逃生口）
 │   │   ├── noop.py            #   Noop Observability / Metrics / Security
@@ -757,19 +839,19 @@ mini-harness/
 │   ├── state/                 # 状态模型（Conversation/Run/Step/Checkpoint/RuntimeEvent）
 │   ├── persistence/           # 完整 SQLite Schema（含 Durable 表）+ 仓储 + UnitOfWork
 │   ├── providers/             # DeepSeek（chat，默认，流式）/ OpenAI（responses，可切换）适配
-│   ├── retrieval/             # RAG：加载 / 切分 / 嵌入（Qwen 默认·OpenAI 保留）/ 向量存储 / 检索 / 投影
-│   ├── mcp/                   # MCP：配置 / 完整网关 / 发现 / 适配 / 资源
+│   ├── retrieval/             # RAG：加载 / 切分 / 嵌入（Qwen 默认·OpenAI 保留）/ 向量存储 / 检索 / 投影；P14 多仓库编排（catalog / store）
+│   ├── mcp/                   # MCP：配置 / 完整网关 / 发现 / 适配 / 资源；P14 Server 清单存储（store）
 │   ├── observability/         # 可观测性：引导 / span / 指标 / 日志 / 成本 + Collector 参考配置
 │   ├── evaluation/            # Phase 8：数据集 / 评估器 / Judge / 运行器 / 报告与质量门
 │   ├── security/              # Phase 9：Guard / ToolPolicy / Approval / Audit / Sandbox
 │   ├── durable/               # Phase 10：配置 / 模型 / 序列化 / Trace / Store / Service / Worker
 │   ├── platform/              # Phase 11（可选扩展）：配置 / Schema / Store / Auth / Quota（兼容门面）/ Metering / Billing / API
-│   └── ui/ + frontend/        # P11·P13 对话工作台（后端托管 + Vue 3 源码）
+│   └── ui/ + frontend/        # P11·P13·P14 对话工作台（后端托管 + Vue 3 源码）
 ├── app_tools/                 # 应用层工具包：calculator / notes / workspace / knowledge（框架层不 import）
 ├── mcp_servers/               # 演示 MCP Server
 ├── evals/                     # 评测数据集（datasets/）与报告（reports/）
 ├── scripts/                   # 演示与诊断脚本（含 security_smoke_test）
-├── tests/                     # pytest 测试（app_tools / desktop_api / run_stream / public_app / app_config_plugins …）
+├── tests/                     # pytest 测试（app_tools / desktop_api / run_stream / public_app / app_config_plugins / knowledge_repositories / mcp_dynamic_tools / personal_chat …）
 └── del/                       # 归档：旧版实现、已废弃模块与历史测试（不入库）
 ```
 
@@ -812,7 +894,7 @@ mini-harness/
 
 ## 开发状态
 
-项目已按 13 个阶段完成主体建设（v0.13.0），接口与目录结构仍可能随维护调整。各阶段完成后会同步更新本文档的路线图与能力清单（详见 [CHANGELOG.md](CHANGELOG.md)）。
+项目已按 14 个阶段完成主体建设（v0.14.0），接口与目录结构仍可能随维护调整。各阶段完成后会同步更新本文档的路线图与能力清单（详见 [CHANGELOG.md](CHANGELOG.md)）。
 
 - **后端测试**：`pytest -q`（当前 56 项）覆盖可观测性 / 评估 / 安全 / 持久执行 / 沙箱 / 商业平台，以及公开 API 与配置（`test_public_app` / `test_app_config_plugins`）、应用层工具（`test_app_tools`）、桌面 API 与事件流（`test_desktop_api` / `test_run_stream`）；历史测试位于 `del/tests/` 归档
 - **前端测试与构建**：`cd frontend && npm run test`（vitest + jsdom）覆盖流式增量归并、Markdown 渲染与消毒、工具卡片与审批；`npm run build` 依次执行 `vue-tsc --noEmit` 与 `vite build`，产物写入 `harness/ui/static/`（构建产物入库，运行时不需要 Node.js）

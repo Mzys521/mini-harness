@@ -1,8 +1,6 @@
 # 文件：harness/mcp/client.py
 from time import perf_counter
 
-from mcp import Client, StdioServerParameters
-
 from harness.mcp.config import (
     MCPServerConfig,
     MCPTransport,
@@ -14,6 +12,27 @@ from harness.mcp.errors import (
 from harness.mcp.models import (
     MCPToolSpec,
 )
+
+
+def _load_mcp_sdk():
+    """延迟导入官方 MCP SDK。
+
+    模块级 import 会让 `harness.mcp.manager`（以及整个 MCP 子系统）在没有
+    `[mcp]` extra 时直接不可导入——发现的编排逻辑、Server 清单持久化与接口层
+    都会因此无法使用或测试。可选依赖在真正使用时才导入，缺失时给出可执行提示；
+    组合根 `_register_mcp` 另外做一次启动期检查，保证「启用 MCP 但没装 extra」
+    仍然在构建时就失败。
+    """
+    try:
+        from mcp import (
+            Client,
+            StdioServerParameters,
+        )
+    except ImportError as exc:
+        raise ImportError(
+            'MCP 需要可选依赖，请执行：pip install "mini-harness[mcp]"'
+        ) from exc
+    return Client, StdioServerParameters
 
 class MCPGateway:
     """官方 MCP SDK 与 Harness Core 之间的 Anti-corruption Layer。"""
@@ -48,6 +67,7 @@ class MCPGateway:
                 raise MCPConfigurationError(
                     "stdio MCP Server 必须配置 command"
                 )
+            _, StdioServerParameters = _load_mcp_sdk()
             return StdioServerParameters(
                 command=self.config.command,
                 args=list(
@@ -67,6 +87,7 @@ class MCPGateway:
         self,
     ) -> list[MCPToolSpec]:
         specs: list[MCPToolSpec] = []
+        Client, _ = _load_mcp_sdk()
 
         try:
             async with Client(
@@ -142,6 +163,7 @@ class MCPGateway:
         arguments: dict,
     ):
         started = perf_counter()
+        Client, _ = _load_mcp_sdk()
         attributes = {
             "mcp.server.name": (
                 self.config.name
@@ -236,6 +258,7 @@ class MCPGateway:
         self,
         uri: str,
     ):
+        Client, _ = _load_mcp_sdk()
         try:
             async with Client(
                 self._target()

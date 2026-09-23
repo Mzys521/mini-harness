@@ -76,6 +76,8 @@ class ModelResult:
     usage: ModelUsage = field(
         default_factory=ModelUsage
     )
+    # 是否由 Provider 明确报告缓存计数；缺失不能显示为 0% 命中。
+    cache_usage_reported: bool = False
 
 @dataclass
 class RunResult:

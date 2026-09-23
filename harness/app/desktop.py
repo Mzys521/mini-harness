@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS desktop_instructions (
  id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), text TEXT NOT NULL,
  created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS desktop_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS desktop_chats (
+ id TEXT PRIMARY KEY REFERENCES conversations(id), title TEXT NOT NULL,
+ created_at TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS desktop_run_links (
  run_id TEXT PRIMARY KEY REFERENCES runs(id), parent_id TEXT NOT NULL REFERENCES runs(id), step_id TEXT);
 """
@@ -130,29 +133,36 @@ class DesktopService:
         return {"path": path, "content": file.read_text(encoding="utf-8-sig")}
 
     def new_session(self, workspace_id, title="新任务"):
-        self.workspace(workspace_id)
+        if workspace_id:
+            self.workspace(workspace_id)
         conversation = Conversation(id=f"conv_{uuid4().hex}", user_id=self.config.app.local_user_id, tenant_id=self.config.app.local_tenant_id)
         with self.database.uow() as uow:
             uow.conversations.add(conversation)
             uow.commit()
-        self.execute(
-            "INSERT INTO desktop_sessions (id,workspace_id,title,created_at,archived) VALUES (?,?,?,?,0)",
-            (conversation.id, workspace_id, title.strip() or "新任务", utc_now().isoformat()),
-        )
+        if workspace_id:
+            self.execute(
+                "INSERT INTO desktop_sessions (id,workspace_id,title,created_at,archived) VALUES (?,?,?,?,0)",
+                (conversation.id, workspace_id, title.strip() or "新任务", utc_now().isoformat()),
+            )
+        else:
+            self.execute("INSERT INTO desktop_chats VALUES(?,?,?,0)", (conversation.id, title.strip() or "新对话", utc_now().isoformat()))
         return self.session(conversation.id)
 
     def session(self, session_id):
         rows = self.rows("SELECT * FROM desktop_sessions WHERE id=?", (session_id,))
         if not rows:
+            rows = self.rows("SELECT *,'' AS workspace_id FROM desktop_chats WHERE id=?", (session_id,))
+        if not rows:
             raise LookupError("会话不存在")
         return rows[0]
 
     def update_session(self, session_id, *, title=None, archived=None):
-        self.session(session_id)
+        session = self.session(session_id)
+        table = 'desktop_sessions' if session['workspace_id'] else 'desktop_chats'
         if title is not None:
-            self.execute("UPDATE desktop_sessions SET title=? WHERE id=?", (title.strip() or "新任务", session_id))
+            self.execute(f"UPDATE {table} SET title=? WHERE id=?", (title.strip() or "新任务", session_id))
         if archived is not None:
-            self.execute("UPDATE desktop_sessions SET archived=? WHERE id=?", (1 if archived else 0, session_id))
+            self.execute(f"UPDATE {table} SET archived=? WHERE id=?", (1 if archived else 0, session_id))
         return self.session(session_id)
 
     def session_active_runs(self, session_id):
@@ -185,6 +195,7 @@ class DesktopService:
         self.execute("DELETE FROM runs WHERE conversation_id=?", (session_id,))
         self.execute("DELETE FROM messages WHERE conversation_id=?", (session_id,))
         self.execute("DELETE FROM desktop_sessions WHERE id=?", (session_id,))
+        self.execute("DELETE FROM desktop_chats WHERE id=?", (session_id,))
         self.execute("DELETE FROM conversations WHERE id=?", (session_id,))
         return {"removed": True, "runs": len(run_ids)}
 
@@ -305,6 +316,8 @@ class DesktopService:
                 node_status = "pending" if state and state.current_tool_call and state.current_tool_call.call_id == data.get("call_id") and status == "pending" else "skipped"
             output = data.get("output", data)
             node = {"id": step["id"], "kind": "thought" if step["type"] == "model" else "tool", "name": data.get("name", "模型响应" if step["type"] == "model" else "工具执行"), "summary": json.dumps(data.get("input", {}), ensure_ascii=False) if step["type"] != "model" else (str(data.get("output") or "模型提出工具调用")), "status": node_status, "duration": data.get("duration", 0), "tokens": data.get("tokens", 0), "input": data.get("input", json.loads(step["input_json"])), "output": output}
+            if step["type"] == "model" and isinstance(data.get("metrics"), dict):
+                node["metrics"] = data["metrics"]
             try:
                 parsed = json.loads(output) if isinstance(output, str) else output
                 if isinstance(parsed, dict):

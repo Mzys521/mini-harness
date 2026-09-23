@@ -23,6 +23,7 @@ class SubmitRunRequest(BaseModel):
     input: str = Field(min_length=1, max_length=16_000)
     conversation_id: str | None = None
     workspace_id: str | None = None
+    skill_ids: list[str] = Field(default_factory=list, max_length=8)
 
 
 def _server_imports():
@@ -86,6 +87,8 @@ def _create_local_app(harness_app, runtime):
                 runtime.worker_pool.run_forever(stop_event=stop_event),
                 name="durable-worker-pool",
             )
+            group.create_task(runtime.scheduler.run_forever(stop_event), name="local-scheduler")
+            group.create_task(runtime.temporary.cleanup(stop_event), name="temporary-chat-cleanup")
             try:
                 yield
             finally:
@@ -107,31 +110,10 @@ def _create_local_app(harness_app, runtime):
 
     @api.post("/v1/runs", status_code=202)
     async def submit_run(body: SubmitRunRequest = Body(...)):
-        workspace_id = body.workspace_id
-        if body.conversation_id:
-            sessions = runtime.desktop.rows("SELECT * FROM desktop_sessions WHERE id=?", (body.conversation_id,))
-            if sessions:
-                bound = sessions[0]["workspace_id"]
-                if workspace_id and workspace_id != bound:
-                    raise ValueError("会话已绑定另一个工作区，请新建会话")
-                workspace_id = bound
-        context = runtime.desktop.agent()["instructions"]
-        # 工作区目录在这里解析一次并写进 ToolContext：工具层因此不必回头问数据库。
-        workspace_path = None
-        knowledge_path = None
-        if workspace_id:
-            workspace = runtime.desktop.workspace(workspace_id)
-            workspace_path = workspace["path"]
-            knowledge_path = workspace["knowledge_path"]
-            context += f"\n当前工作区：{workspace_path}。使用 workspace 工具读取、修改文件和运行测试。知识资料可用 workspace_knowledge_search 检索。"
-        result = await runtime.durable.submit(
-            user_input=body.input, conversation_id=body.conversation_id,
-            user_id=harness_app.config.app.local_user_id,
-            tenant_id=harness_app.config.app.local_tenant_id,
-            permissions=harness_app.local_permissions(),
-            workspace_id=workspace_id, workspace_path=workspace_path, knowledge_path=knowledge_path,
-            external_context=context,
-        )
+        from harness.app.personal import submit_local
+        result = await submit_local(runtime, harness_app.config, user_input=body.input,
+                                    conversation_id=body.conversation_id, workspace_id=body.workspace_id,
+                                    skill_ids=body.skill_ids)
         return asdict(result)
 
     @api.get("/v1/runs/{run_id}")
@@ -150,4 +132,14 @@ def _create_local_app(harness_app, runtime):
 
     from harness.app.desktop_api import install_desktop_routes
     install_desktop_routes(api, harness_app, runtime)
+
+    # RAG / MCP 端点复用上面注册的同源保护中间件与异常处理器（LookupError→404 /
+    # ValueError→400），因此必须排在 install_desktop_routes 之后。
+    from harness.app.knowledge_api import register_knowledge_routes
+    from harness.app.mcp_api import register_mcp_routes
+
+    register_knowledge_routes(api, harness_app, runtime)
+    register_mcp_routes(api, harness_app, runtime)
+    from harness.app.personal_api import register_personal_routes
+    register_personal_routes(api, runtime)
     return api

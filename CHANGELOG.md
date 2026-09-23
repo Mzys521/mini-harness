@@ -4,9 +4,96 @@
 
 ## [Unreleased]
 
+### 测试与持续集成
+
+- CI 保留 Python 3.12/3.13 的常用依赖作业，新增 Python 3.12 `.[all,dev]` 作业，并在测试前检查 RAG/MCP 可选依赖确实可导入。
+- 新增真实 MCP stdio 服务器的发现、注册与调用测试，以及 Chroma 集合的持久化、过滤、按文档删除和仓库隔离测试；未安装对应 Extra 的 Core 环境会跳过这些集成用例。
+
+## [0.14.0] - 2026-09-23
+
+> 主题：**多 RAG 仓库、运行期 MCP 与个人工作台（Multi-RAG, Runtime MCP & Personal Workbench）**。Phase 1–13 的能力全部保留：RAG 从「单集合 + `tenant_id` 过滤」扩展为**多个相互隔离的仓库**（一仓库一份向量集合，Agent 写入需用户审批）；MCP 从「启动期静态配置」扩展为**前端登记即发现并注册**；工具注册表在 build 期 `freeze()` 封板之上增加**运行期动态层**，并把「这次运行能用哪些工具」固定进 Run 快照。工作台一侧补上普通对话、临时对话、技能、使用习惯与定时任务。
+> **无需数据迁移**：会话归档列（`archived`）与个人数据表都在启动时自动补齐，旧工作区数据照常可用。本版有两处**行为变化**，见下「兼容」。
+
+### 新增（输入区对话指标）
+
+- 输入框下增加小字、SVG 图标和紧凑行高的用量栏；设置中可选择缓存命中率、输出速度、已用 token、上下文余量与轮数/步数，全部关闭可隐藏。
+- 模型请求结束事件和历史步骤携带用量、耗时、配置窗口；缓存未报告与报告零区分，兼容 DeepSeek 原生缓存计数。旧数据保留未知值，临时指标不落盘。
+- 上下文余量明确为估算；新增 [docs/token-accounting-plan.md](docs/token-accounting-plan.md) 规划模型感知 tokenizer、完整请求计数及 Provider 用量对账。
+- 按用户要求移除 `AGENTS.md`，保留并更新 `AGENT.md`。
+
+### 变更（设置浮窗与对话阅读）
+
+- 使用习惯并入左下角设置；设置改为左侧分类、右侧内容的浮窗，兼容旧偏好页面链接，保留聊天草稿和分类内编辑内容。
+- 新增自定义强调色和背景/面板/文字/边框配色，支持拾色器、六位 HEX 校验、对比度提示、即时预览、浏览器保存与恢复主题颜色。
+- 对话增加居中阅读留白，右侧以短横线提供逐轮定位；悬浮或聚焦展示提问、回复摘要及状态，点击跳转并暂停跟随最新，滚动时高亮当前轮次，支持键盘和减少动画偏好。
+
+### 新增（Local 个人对话与自动化）
+
+- 项目之外的普通对话与独立列表；临时对话支持流式回答，虚线边框，结束/离开/刷新/关闭清除，异常断开最长 30 分钟过期；不写入本地会话、运行、审计或长期记忆，内置 Provider 禁用响应留存/历史缓存。
+- 个人使用习惯读取与编辑，普通/项目对话可审批后保存偏好；技能创建、编辑、启停、删除、SKILL.md 指令导入与对话选用，不执行脚本。
+- Local 定时任务真实调度：手动或对话审批后创建，单次/固定间隔、暂停/启用/删除、查看执行对话；服务离线积压只补一次，工具副作用继续审批。
+- 探索页可创建 RAG 仓库、上传 UTF-8 文本并查看索引结果；保留未启用时的配置提示。
+
+### 变更（侧栏与会话入口）
+
+- 普通“新对话”入口置于导航最上方，对话列表保留在项目下方；临时对话使用虚线气泡图标；项目行新建会话位于展开箭头之前，共用行背景，保留悬浮与键盘入口。
+- `POST /v1/sessions` 的工作区现为可选，未指定的列表查询返回普通会话；`POST /v1/runs` 支持技能选择，普通会话工具限制为调度与偏好保存。新增 `desktop_chats` 及个人上下文/调度表，旧工作区数据无需迁移。
+
+### 新增（前端导航与项目会话）
+
+- 项目标题的新建工作区按钮、项目行的新建会话按钮在鼠标悬浮对应行时显示，分别采用加号与方框铅笔图标；预留按钮位置避免文字跳动，键盘焦点和触屏仍可操作。
+
+- 左侧新增新对话、Pull Request、定时任务、插件、探索入口；使用原生 Hash 路由，支持直接地址、刷新与浏览器前进/后退，不增加依赖。
+- 「项目」下每个文件夹复用一个工作区，会话按 `workspace_id` 嵌套显示、独立展开；新建、归档、恢复和删除沿用已有接口，不增加数据库表或聊天文件存储。
+- 插件页读取 MCP 服务/工具清单，探索页提供知识库/文件管理，包含加载、空状态和失败重试；PR 保留未接入说明，定时任务已接入本地调度。
+- 保留左下角外观设置、默认衬线字体、项目统一 Logo、圆角输入区与隐藏的可拖动边界；聊天/代码滚动条改为主题自适应的细圆角样式，悬停突出显示，高对比模式沿用系统样式。
+- 新增导航、跨工作区隔离、历史地址、非当前项目归档、草稿/事件流保留、MCP/知识库读取与重试回归测试。
+
+### 新增（多 RAG 仓库）
+
+- **一个仓库一个独立向量集合**：`KnowledgeRepositoryCatalog`（`harness/retrieval/catalog.py`）管理多个相互隔离的 RAG 仓库，`collection_name` 由仓库 id 派生（`repo_<id>`）。删除仓库 = 丢弃整份集合，不必按 metadata 反选删除，也不会误伤别的仓库
+- **仓库与文件元数据落 SQLite**：`knowledge_repositories` / `knowledge_repository_files` 两张表由 `harness/retrieval/store.py` 自建（**不进入核心 `persistence/schema.py`**：关掉 `[rag]` 时不该在核心里留下只属于它的表）。唯一约束 `(repository_id, filename)` 让同名重传成为覆盖
+- **chunk 元数据硬契约**：每个 chunk 必须带齐 `filename` / `repository_id` / `uploaded_at` / `embedding_model`，缺一个 `IngestionService.ingest()` 直接抛 `ValueError`。前三个由调用方写进 `Document.metadata`，`embedding_model` 由摄取服务从 provider 的**实际生效模型**补齐
+- **同名重传不残留**：`document_id = stable_id("doc", f"{repository_id}:{filename}")` 只由仓库 + 文件名决定，重传时先 `delete_by_document` 再写入，旧内容不会留在索引里
+- **Agent 写入需用户授权**：`create_rag_write_tool()`（`harness/app/features.py`）是唯一入口，声明 `side_effect=True` + `requires_approval=True` + `required_permissions={"rag.write"}`。两道闸门独立生效：权限由 `ToolExecutor` 校验，审批由 `DefaultToolPolicy` + 持久 `ApprovalStore` 决定，Run 停在 `APPROVAL_REQUIRED` 等用户批准。**没有新增权限表**，沿用 Phase 9 的既有机制
+- **前端接口**：`GET/POST /v1/knowledge/repositories`、`GET/DELETE /v1/knowledge/repositories/{id}`、`GET /v1/knowledge/repositories/{id}/files`（仓库内文件清单：文件名 / chunk 数 / 向量化模型 / 上传时间）、`POST /v1/knowledge/repositories/{id}/files?filename=`（原始请求体即内容）。`[rag]` 未启用时端点返回 503 + 启用提示，而不是让前端猜 404
+- **向量后端改为注入**：`KnowledgeRepositoryCatalog` 通过 `vector_store_factory` 拿向量库，**不 import chromadb**。因此没有 `[rag]` extra 也能导入并测试仓库编排逻辑（`[rag]` 之外不再需要为了跑测试装 chromadb）
+- **旧路径完整保留**：`[rag].collection_name` + `tenant_id` 过滤的单集合检索行为与 schema 都不变；`build_rag_tool()` 的 schema 在未传 catalog 时与旧版逐字一致（多仓库检索走另一个 args model）
+
+### 新增（运行期 MCP 注册）
+
+- **前端提交 MCP 信息即自动注册工具**：`POST /v1/mcp/servers` → 建网关 → 发现远端工具 → 注册进注册表动态层 → 落库。**发现失败不落库**，不会留下连不上的配置
+- **`SQLiteMCPServerStore`**：登记过的 Server 在重启后由 `_register_mcp` 重新装载并在**构建期**注册（同名冲突以 `harness.toml` 为准），因此静态配置与前端登记共用一条装配路径
+- **`MCPManager` 扩展（既有类，未新增类名）**：`register_server()` / `unregister_server()` / `get_server_tools()`。`harness.toml` 静态配置的 Server 拒绝运行期删除，它的工具不是 dynamic 的
+- **安全默认**：远端工具的能力声明不被信任。运行期登记的 Server 在用户逐个声明策略之前一律使用 `UNTRUSTED_TOOL_POLICY`（`side_effect=True` + `requires_approval=True`），宁可多一次审批也不把未知远端工具当只读执行
+- **官方 SDK 改为延迟导入**：`harness/mcp/client.py` 原本在模块级 `from mcp import ...`，导致没有 `[mcp]` extra 时**整个 MCP 子系统**（管理器、Server 清单存储、接口层）都不可导入、也无法测试。现在 SDK 在真正使用时才导入并给出可执行安装命令；`_register_mcp` 另外保留一次显式 `import mcp` 启动期检查，因此「启用 MCP 但没装 extra」仍然在**构建期**抛 `FeatureDependencyError`（新增回归测试锁定这个行为）
+- **`GET/DELETE /v1/mcp/servers`**：列出已生效的 Server 与其贡献的工具（含 `removable` 标记）／摘除动态 Server。`[mcp]` 未启用时返回 503 + 启用提示
+
+### 变更（工具注册表：构建期封板 + 运行期动态层）
+
+- **可复现性下沉到 Run 粒度**：`AgentRunner.create_execution()` 把当时的工具名集合写进 `ToolContext.tool_names`（并进入 Durable 序列化）。模型只看到快照内的 schema，执行器也会拒绝快照外的调用（`TOOL_NOT_IN_RUN_SNAPSHOT`）。**新提交的 Run 才看得到运行期新增的工具**，已经在跑或崩溃恢复的 Run 仍按原快照执行
+- **`ToolRegistry` 两层**：`register(tool)` 是构建期注册，`freeze()` 之后再注册抛 `ValueError`（此前这条规则只在 `HarnessApp` 门面上，注册表本身没有封板）；`register(tool, dynamic=True)` 是运行期扩展，配套 `unregister(name)` / `is_dynamic(name)`。`openai_schemas(names=None)` 新增可选快照参数，不传时语义与旧版一致
+- **`MCPToolPolicy` 默认值可声明**：`MCPServerConfig` 新增 `default_tool_policy`（默认 `MCPToolPolicy()`，即旧行为不变），供运行期登记的 Server 传入更保守的策略
+
+### 修复
+
+- `tests/test_conversation_metrics.py` 的耗时断言不再假设 `asyncio.sleep(.01)` 等于 10ms 墙钟：Windows 上 asyncio 的定时器粒度粗于 `perf_counter`，该 sleep 实测只有约 3.7ms，让 `duration_ms >= 10` 在本地随机失败（CI 的 Linux 计时器无此偏差）。改为断言 Runner 记录的窗口**不小于模型自测耗时**——语义不变（耗时是真实测量，不是占位 0），但不再依赖绝对墙钟
+
+### 兼容（0.14.0）
+
+- **`ToolContext` 只新增可选字段** `tool_names`（默认 `None` = 不限制），直接构造 `ToolContext` 的旧调用方行为不变
+- **`IngestionService` 的构造签名未变**（`chunker` / `embedding_provider` / `vector_store`），只是 `ingest()` 现在会校验并补齐元数据。全仓库检索确认过：该类的既有调用方为零，因此校验收紧不会影响现网代码
+- **`VectorStore` 协议新增 `delete_all()`**：服务于「删除仓库即丢弃集合」。仓内只有 `ChromaVectorStore` 一个实现，第三方实现需要补这个方法
+- **`MCPServerConfig` 只新增带默认值的字段**；`discover_and_register()` 新增 `dynamic` 关键字参数（默认 `False`，旧调用行为不变）
+- **`ChromaVectorStore` 新增可选 `client` 参数**：多个仓库集合共用一个 `PersistentClient`，不传时自建（旧行为不变）
+- **`RuntimeBundle` 新增可选字段** `knowledge` / `mcp` / `mcp_store`（默认 `None`），`app.runtime` 的既有字段一个都没动
+- **注册表封板带来的行为变化**：build 之后直接调用 `registry.register()`（绕过 `HarnessApp` 门面）现在会抛 `ValueError`，此前是静默允许。门面层的 `RuntimeError` 行为未变
+
 ### 计划中
 
-- 后续不再新增 Harness 核心能力，建议定义为 **Open Source Release Engineering / Production Hardening（开源发布工程 / 生产加固）**：PyPI 发行流程、Dockerfile、PostgreSQL Adapter、迁移工具、生产部署指南、Benchmark 与示例应用
+- 后续（0.14.0 起）不再新增 Harness 核心能力，建议定义为 **Open Source Release Engineering / Production Hardening（开源发布工程 / 生产加固）**：PyPI 发行流程、Dockerfile、PostgreSQL Adapter、迁移工具、生产部署指南、Benchmark 与示例应用
+- 欠账与下一步见 `HANDOFF.md` 与 `AGENT.md` 第 6 节（RAG/MCP 远端连接路径缺测试、ruff/mypy 未进 CI、前端产物无一致性校验、无依赖锁文件）
+
 
 ## [0.13.0] - 2026-09-21
 

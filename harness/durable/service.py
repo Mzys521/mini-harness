@@ -76,6 +76,7 @@ class DurableAgentService:
         workspace_path: str | None = None,
         knowledge_path: str | None = None,
         external_context: str | None = None,
+        tool_names: frozenset[str] | None = None,
     ) -> DurableSubmission:
         with self.observability.span(
             "durable.submit"
@@ -201,6 +202,7 @@ class DurableAgentService:
                         user_id=user_id,
                         tenant_id=tenant_id,
                         permissions=permissions,
+                        tool_names=tool_names,
                     ),
                     working_state=WorkingState(
                         goal=safe_input

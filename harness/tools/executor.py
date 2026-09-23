@@ -8,13 +8,11 @@ from time import perf_counter
 from harness.models import ToolCall
 from harness.security.models import SecurityAction
 from harness.tools.definition import Tool, ToolContext
+from harness.tools.errors import RetryableToolError, ToolNotFoundError
 from harness.tools.idempotency import IdempotencyStatus
 from harness.tools.registry import ToolRegistry
 from harness.tools.result import ToolResult, ToolStatus
 from harness.tools.validation import validate_tool_arguments
-
-class RetryableToolError(Exception):
-    """只有明确可安全重试的临时错误才使用。"""
 
 class ToolExecutor:
     """统一执行 Local / RAG / MCP Tool。
@@ -63,13 +61,29 @@ class ToolExecutor:
             tool = self.registry.get(
                 call.name
             )
-        except ValueError as exc:
+        except ToolNotFoundError as exc:
             return ToolResult(
                 call_id=call.call_id,
                 tool_name=call.name,
                 status=ToolStatus.NOT_FOUND,
                 error_code="TOOL_NOT_FOUND",
                 error_message=str(exc),
+            )
+
+        # 快照准入：Run 只能调用创建它时快照下来的工具。
+        # 运行期新增（例如前端登记的 MCP Server）只对新提交的 Run 生效。
+        if (
+            context.tool_names is not None
+            and call.name not in context.tool_names
+        ):
+            return ToolResult(
+                call_id=call.call_id,
+                tool_name=call.name,
+                status=ToolStatus.NOT_FOUND,
+                error_code="TOOL_NOT_IN_RUN_SNAPSHOT",
+                error_message=(
+                    "该工具不在本次 Run 的能力快照内。"
+                ),
             )
 
         attributes = {

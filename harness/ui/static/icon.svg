@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" fill="none">
-  <rect x="1" y="1" width="38" height="38" rx="11" fill="#C4D6AF" stroke="#789265"/>
-  <g stroke="#263820" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-    <path d="m11 12 7 8-7 8M23 28h6"/>
-    <path d="M25 11v7m-3.5-3.5h7" stroke-width="1.6"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
+  <title>Mini Harness</title>
+  <desc>A serif H joined by a gold ribbon, representing a harness connecting an agent to its tools.</desc>
+  <rect x="1" y="1" width="62" height="62" rx="18" fill="#242421" stroke="#4A463D"/>
+  <path d="M13 15h17v3h-3v28h3v3H13v-3h4V18h-4zm21 0h17v3h-4v28h4v3H34v-3h3V18h-3z" fill="#F1E9D8"/>
+  <path d="M22 36c8 0 12-8 20-8" stroke="#D6AD60" stroke-width="5" stroke-linecap="round"/>
 </svg>

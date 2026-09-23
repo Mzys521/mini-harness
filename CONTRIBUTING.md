@@ -34,6 +34,21 @@ npm run build                # vue-tsc --noEmit + vite build → harness/ui/stat
 
 > 提交前请确保 `harness/ui/static/` 与 `frontend/src/` 同步：构建产物是运行时真正加载的文件，只改源码不重新构建等于没有生效。
 
+### 前端导航改动检查
+
+- 指标栏需覆盖显示开关、SSE 重放幂等、历史回放一致性、缓存缺失/零值、空会话和临时会话清理；人工检查桌面单行及窄屏换行。不可用数字显示 `—`，上下文估算显示 `≈`。精确 token 后续开发按 `docs/token-accounting-plan.md` 验收。
+
+- 设置需验证浮窗左侧分类、使用习惯读取/保存与失败保护、旧 `#/preferences` 链接、切换分类保留编辑内容，以及打开设置不丢失聊天草稿。
+- 配色需验证六位 HEX 校验、浏览器持久化、自定义开关与恢复主题颜色；在窄屏检查设置内容滚动和关闭入口。
+- 对话定位需检查悬浮摘要、点击滚动、当前轮次高亮、空会话清理、长会话及窗口大小变化；点击历史定位不能被自动跟随拉回，键盘和减少动画偏好继续有效。
+
+- 入口为 `App.vue`，Hash 地址逻辑在 `useWorkbenchRoute.ts`；项目树为 `ProjectTree.vue`、普通列表为 `ChatList.vue`、管理页为 `CapabilityPage.vue` / `PersonalPage.vue`。
+- 项目文件夹复用 Workspace；普通会话用 `desktop_chats` 元数据表，不改旧工作区会话外键、不创建磁盘聊天目录。
+- 导航测试应覆盖直接地址、刷新/历史切换、工作区与会话匹配、归档/删除目标项目，以及辅助页面期间草稿与 SSE 保留。
+- 验证 RAG 创建上传、SKILL.md 导入、任务时间含时区、技能选择、普通会话无需工作区；MCP/RAG 的 503/404 与失败重试需保留，PR 仍说明未接入。
+- 临时对话必须测试数据库/审计零新增、内置 Provider 不留响应缓存、断开取消和 TTL；页面离开/刷新不保留草稿或正文。定时任务测试审批前不创建、原子 claim、重复任务合并补跑与暂停。
+- 人工检查深色/浅色/纸张主题、窄屏、隐藏边界拖动和聊天滚动条；不要用真实用户会话做写入测试。
+
 ## Design rules
 
 1. **内部复杂，外部简单。** 新增子系统放在 `harness/<subsystem>/`，由 `harness/app/assembly.py` 组装；不要把它加进开发者必须手工初始化的清单。
@@ -79,12 +94,31 @@ def create_note(title: str, body: str) -> dict:
 
 ## Stage conventions
 
-项目按 13 个阶段推进（见 README 路线图，Phase 1–13 已完成）。每完成一个阶段请同步：
+项目按 14 个阶段推进（见 README 路线图，Phase 1–14 已完成）。每完成一个阶段请同步：
 
 1. 新增或更新测试，保持 `pytest` 全量通过
 2. 更新 README 的「路线图」与「已实现能力」
 3. 在 [CHANGELOG.md](CHANGELOG.md) 记录变更（开发中写进 `[Unreleased]`）
 4. 里程碑达成后打标签：`git tag -a v0.x.0 -m "v0.x.0 — Phase x 完成"`
+
+### 版本号与发布
+
+运行时的版本号**只有一个来源**：`harness/__init__.py` 的 `__version__`（FastAPI 的 `version`、`GET /healthz` 与 `ObservabilityConfig.service_version` 都读它）。发版时需要同步四处：
+
+| 位置 | 说明 |
+| --- | --- |
+| `pyproject.toml` → `[project].version` | 分发包版本，必须与 `__version__` 一致 |
+| `harness/__init__.py` → `__version__` | 运行时唯一来源 |
+| `frontend/package.json` → `version`（以及 `package-lock.json` 的两处） | 工作台前端包版本，跟随框架版本 |
+| `README.md` | Version 徽章、阶段数（「Phase 1–N」）与路线图状态 |
+
+发布流程：
+
+1. 把 CHANGELOG 的 `## [Unreleased]` 改为 `## [x.y.z] - YYYY-MM-DD`，并补一行 `> 主题：…` 摘要；在其上方保留空的 `## [Unreleased]`
+2. 更新上表四处版本号，并同步 `AGENT.md` / `HANDOFF.md` 的阶段状态
+3. 打标签并推送：`git tag -a vx.y.z -m "vx.y.z — Phase x 完成"` → `git push origin main --follow-tags`
+
+> 版本语义：README 的规则是**旧能力 + 新能力 = 新版本**。新增能力走 minor（`0.13.0` → `0.14.0`）；记录在 CHANGELOG「兼容」一节的行为变化若影响既有调用方，提交信息用 `feat!:`。
 
 ## Reporting issues
 

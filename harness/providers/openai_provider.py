@@ -17,6 +17,7 @@ class OpenAIProvider:
         self.model = model
         self.observability = observability
         self.metrics = metrics
+        self.store_responses = True
 
     # 已经在 0.5.0 版本中弃用 将在 0.7.0 版本中删除
     # # 转换为 OpenAI 输入
@@ -65,6 +66,7 @@ class OpenAIProvider:
                 instructions=instructions,
                 previous_response_id=previous_response_id,
                 stream=True,
+                store=self.store_responses,
             )
 
             response = None
@@ -87,9 +89,9 @@ class OpenAIProvider:
             total_tokens = usage.total_tokens if usage is not None else 0
             cached_input_tokens = 0
 
-            # 记录缓存输入token数
-            if usage is not None and usage.input_tokens_details is not None:
-                cached_input_tokens = usage.input_tokens_details.cached_tokens or 0
+            details = getattr(usage, "input_tokens_details", None)
+            cache_count = getattr(details, "cached_tokens", None)
+            cached_input_tokens = cache_count or 0
 
             span.set_attribute("gen_ai.usage.input_tokens", input_tokens)
             span.set_attribute("gen_ai.usage.output_tokens", output_tokens)
@@ -123,6 +125,7 @@ class OpenAIProvider:
                 text = response.output_text,
                 tool_calls=tool_calls,
                 response_id=response.id,
+                cache_usage_reported=cache_count is not None,
                 usage=ModelUsage(
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,

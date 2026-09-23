@@ -5,6 +5,7 @@ import { STORAGE_KEYS, readJSON, writeJSON } from '@/api/storage';
 
 export interface Workspace { id: string; name: string; path: string; knowledge_path: string }
 export interface Session { id: string; workspace_id: string; title: string; created_at: string; archived?: number }
+export interface SessionGroup { active: Session[]; archived: Session[] }
 export interface DirectoryListing { path: string; parent: string; directories: { name: string; path: string }[]; roots: string[] }
 
 /** 与后端 observed_run 的 status 词表一一对应。 */
@@ -24,6 +25,20 @@ export interface ToolCallView {
 export interface TextBlock { kind: 'text'; text: string; streaming: boolean; activity?: 'thought' | 'step' }
 export interface ToolBlock { kind: 'tools'; calls: ToolCallView[] }
 export type Block = TextBlock | ToolBlock;
+export interface ModelMetrics {
+  input_tokens: number; output_tokens: number; total_tokens: number;
+  cached_input_tokens: number | null; duration_ms: number; context_window: number | null;
+}
+export function readMetrics(raw: unknown): ModelMetrics | undefined {
+  if (!raw || typeof raw !== 'object') return;
+  const m = raw as Record<string, unknown>;
+  const valid = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+  if (![m.input_tokens, m.output_tokens, m.total_tokens, m.duration_ms].every(valid)) return;
+  return { input_tokens: m.input_tokens as number, output_tokens: m.output_tokens as number,
+    total_tokens: m.total_tokens as number, duration_ms: m.duration_ms as number,
+    cached_input_tokens: valid(m.cached_input_tokens) && m.cached_input_tokens <= (m.input_tokens as number) ? m.cached_input_tokens : null,
+    context_window: valid(m.context_window) && m.context_window > 0 ? m.context_window : null };
+}
 export interface Turn {
   id: string;
   input: string;
@@ -31,13 +46,14 @@ export interface Turn {
   blocks: Block[];
   error: string;
   tokens: number;
+  metrics?: Record<string, ModelMetrics>;
   /** 已归并的最后一条事件序号。浏览器重连会重放缓冲，靠它保持幂等。 */
   seq: number;
 }
 
 interface ObservedNode {
   id: string; kind: string; name: string; status?: string; tokens?: number;
-  input?: unknown; output?: unknown; diff?: FileDiff | null; error?: { message?: string };
+  metrics?: unknown; input?: unknown; output?: unknown; diff?: FileDiff | null; error?: { message?: string };
 }
 interface ObservedRun { id: string; status: string; input: string; nodes: ObservedNode[]; totalTokens?: number; conversationId?: string | null }
 interface Submission { run_id: string; conversation_id: string; blocked?: boolean; output?: string | null }
@@ -133,6 +149,8 @@ function callFromNode(node: ObservedNode): ToolCallView {
 /** 把一条持久化 Run 投影成与实时流完全一致的对话轮次。 */
 export function turnFromRun(run: ObservedRun): Turn {
   const blocks: Block[] = [];
+  const metrics: Record<string, ModelMetrics> = {};
+  let modelStep = 0;
   const finalText = (run.nodes.find(node => node.kind === 'output')?.output as string | undefined) ?? '';
 
   for (const node of run.nodes) {
@@ -151,6 +169,9 @@ export function turnFromRun(run: ObservedRun): Turn {
     }
     const text = typeof node.output === 'string' ? node.output : '';
     if (node.kind === 'thought') {
+      modelStep++;
+      const value = readMetrics(node.metrics);
+      if (value) metrics[String(modelStep)] = value;
       // 模型最后一个步骤的正文与最终输出节点内容相同，只保留一份。
       if (text.trim() && text.trim() !== finalText.trim()) blocks.push({ kind: 'text', text, streaming: false, activity: 'thought' });
       continue;
@@ -168,6 +189,7 @@ export function turnFromRun(run: ObservedRun): Turn {
     blocks,
     error: run.status === 'failed' ? run.nodes.find(node => node.kind === 'result')?.error?.message ?? '' : '',
     tokens: run.totalTokens ?? 0,
+    metrics,
     seq: 0,
   };
 }
@@ -175,8 +197,17 @@ export function turnFromRun(run: ObservedRun): Turn {
 export const useChat = defineStore('chat', () => {
   const workspaces = ref<Workspace[]>([]);
   const workspaceId = ref(readJSON<string>(STORAGE_KEYS.workspace) ?? '');
-  const sessions = ref<Session[]>([]);
-  const archivedSessions = ref<Session[]>([]);
+  const sessionGroups = ref<Record<string, SessionGroup>>({});
+  const projectErrors = ref<Record<string, string>>({});
+  const projectLoading = ref<Record<string, boolean>>({});
+  const sessions = computed({
+    get: () => sessionGroups.value[workspaceId.value]?.active ?? [],
+    set: (active: Session[]) => { sessionGroups.value[workspaceId.value] = { archived: archivedSessions.value, active }; },
+  });
+  const archivedSessions = computed({
+    get: (): Session[] => sessionGroups.value[workspaceId.value]?.archived ?? [],
+    set: (archived: Session[]) => { sessionGroups.value[workspaceId.value] = { active: sessions.value, archived }; },
+  });
   const sessionId = ref('');
   const turns = ref<Turn[]>([]);
   const connected = ref(false);
@@ -184,12 +215,90 @@ export const useChat = defineStore('chat', () => {
   const activeRunId = ref('');
   const error = ref('');
   const streamDegraded = ref(false);
+  const temporary = ref(false);
+  const selectedSkills = ref<string[]>([]);
+  const skills = ref<{ id: string; name: string; enabled: boolean }[]>([]);
+  let temporaryId = '';
+  let temporaryVersion = 0;
+  let temporaryAbort: AbortController | undefined;
+
+  async function loadSkills(): Promise<void> {
+    const data = await request<{ items: typeof skills.value }>('/v1/skills');
+    if (!Array.isArray(data.items)) throw new ApiError('技能列表格式不正确，请重启本地服务。');
+    skills.value = data.items;
+    selectedSkills.value = selectedSkills.value.filter(id => skills.value.some(skill => skill.id === id && skill.enabled));
+  }
+
+  function endTemporary(): void {
+    temporaryVersion++;
+    temporaryAbort?.abort();
+    if (temporaryId) void fetch(`/v1/temporary-chats/${temporaryId}/end`, { method: 'POST', keepalive: true }).catch(() => {});
+    temporaryId = '';
+    temporary.value = false;
+    turns.value = [];
+    activeRunId.value = '';
+    error.value = '';
+  }
+
+  function beginTemporary(): void {
+    closeStream?.(); closeStream = null; stopWatchdog(); endTemporary();
+    workspaceId.value = ''; sessionId.value = ''; temporary.value = true;
+    streamDegraded.value = false;
+  }
+
+  async function sendTemporary(input: string): Promise<void> {
+    const version = temporaryVersion;
+    if (!temporaryId) {
+      const created = await request<{ id: string }>('/v1/temporary-chats', { method: 'POST' });
+      if (version !== temporaryVersion) {
+        void fetch(`/v1/temporary-chats/${created.id}/end`, { method: 'POST', keepalive: true }).catch(() => {});
+        return;
+      }
+      temporaryId = created.id;
+    }
+    const id = `${temporaryId}-${Date.now()}`;
+    turns.value.push({ id, input, status: 'running', blocks: [], error: '', tokens: 0, seq: 0 });
+    activeRunId.value = id;
+    temporaryAbort = new AbortController();
+    try {
+      const response = await fetch(`/v1/temporary-chats/${temporaryId}/messages`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: temporaryAbort.signal,
+        body: JSON.stringify({ input, skill_ids: selectedSkills.value }),
+      });
+      if (!response.ok || !response.body) throw new Error('临时对话不可用，请结束后重新开始。');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = ''; let completed = false;
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done || version !== temporaryVersion) break;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split('\n\n'); buffer = frames.pop() ?? '';
+          for (const frame of frames) {
+            const data = frame.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5)).join('\n');
+            if (!data) continue;
+            const event = JSON.parse(data) as RunEvent;
+            if (event.type === 'error') throw new Error(String(event.message));
+            applyEvent(id, event);
+            if (event.type === 'run.end') completed = true;
+          }
+        }
+        if (!completed && version === temporaryVersion) throw new Error('连接已中断，请结束临时对话后重新开始。');
+      } finally { await reader.cancel(); }
+    } catch (caught) {
+      if (version !== temporaryVersion) return;
+      const turn = turnById(id);
+      if (turn) { turn.status = 'failed'; turn.error = (caught as Error).message; }
+      throw caught;
+    } finally { if (version === temporaryVersion) activeRunId.value = ''; }
+  }
 
   let closeStream: (() => void) | null = null;
   let watchdog: ReturnType<typeof setInterval> | undefined;
 
   const workspace = computed(() => workspaces.value.find(item => item.id === workspaceId.value));
-  const session = computed(() => sessions.value.find(item => item.id === sessionId.value));
+  const session = computed(() => [...sessions.value, ...archivedSessions.value].find(item => item.id === sessionId.value));
   const running = computed(() => activeRunId.value !== '');
 
   async function attempt<T>(work: () => Promise<T>): Promise<T | undefined> {
@@ -214,30 +323,44 @@ export const useChat = defineStore('chat', () => {
         ? workspaceId.value
         : workspaces.value[0]?.id ?? '';
       await selectWorkspace(preferred);
+      if (preferred) await loadWorkspaceSessions('');
     });
     connected.value = error.value === '';
   }
 
   async function selectWorkspace(id: string): Promise<void> {
+    closeStream?.();
+    closeStream = null;
     workspaceId.value = id;
     writeJSON(STORAGE_KEYS.workspace, id);
     sessionId.value = '';
-    sessions.value = [];
-    archivedSessions.value = [];
     turns.value = [];
     activeRunId.value = '';
     stopWatchdog();
-    if (!id) return;
 
     const wid = id;
-    const [active, archived] = await Promise.all([listSessions(wid, false), listSessions(wid, true)]);
+    await loadWorkspaceSessions(wid);
     if (workspaceId.value !== wid) return;
-    // 用 archived 字段而不是接口参数来分组：对面是旧服务时两个查询会返回同一批数据。
-    sessions.value = active.filter(item => !item.archived);
-    archivedSessions.value = archived.filter(item => item.archived === 1);
     const stored = readJSON<string>(STORAGE_KEYS.session);
-    const next = active.find(item => item.id === stored)?.id ?? active[0]?.id ?? '';
+    const next = sessions.value.find(item => item.id === stored)?.id ?? sessions.value[0]?.id ?? '';
     if (next) await selectSession(next);
+  }
+
+  async function loadWorkspaceSessions(id: string): Promise<void> {
+    projectLoading.value[id] = true;
+    projectErrors.value[id] = '';
+    try {
+      const [active, archived] = await Promise.all([listSessions(id, false), listSessions(id, true)]);
+      sessionGroups.value[id] = {
+        active: active.filter(item => item.workspace_id === id && !item.archived),
+        archived: archived.filter(item => item.workspace_id === id && item.archived === 1),
+      };
+    } catch (caught) {
+      projectErrors.value[id] = (caught as Error).message;
+      throw caught;
+    } finally {
+      projectLoading.value[id] = false;
+    }
   }
 
   async function listSessions(workspaceId: string, archived: boolean): Promise<Session[]> {
@@ -248,6 +371,9 @@ export const useChat = defineStore('chat', () => {
   }
 
   async function selectSession(id: string): Promise<void> {
+    if (id && ![...sessions.value, ...archivedSessions.value].some(item => item.id === id)) {
+      throw new ApiError('该会话不属于当前工作区，或已被删除。');
+    }
     closeStream?.();
     closeStream = null;
     stopWatchdog();
@@ -275,7 +401,6 @@ export const useChat = defineStore('chat', () => {
   }
 
   async function newSession(title = DEFAULT_SESSION_TITLE): Promise<Session> {
-    if (!workspaceId.value) throw new ApiError('请先添加并选择工作区。');
     const created = await request<Session>('/v1/sessions', {
       method: 'POST',
       body: JSON.stringify({ workspace_id: workspaceId.value, title: title.trim() || DEFAULT_SESSION_TITLE }),
@@ -310,33 +435,38 @@ export const useChat = defineStore('chat', () => {
     archivedSessions.value = archivedSessions.value.map(item => (item.id === id ? updated : item));
   }
 
-  async function archiveSession(id: string, archived = true): Promise<void> {
+  async function archiveSession(id: string, archived = true, wid = workspaceId.value): Promise<void> {
     await attempt(async () => {
       await sessionMutation<Session>(`/v1/sessions/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         body: JSON.stringify({ archived }),
       });
-      if (archived) {
-        const moving = sessions.value.find(item => item.id === id);
-        sessions.value = sessions.value.filter(item => item.id !== id);
-        if (moving) archivedSessions.value = [{ ...moving, archived: 1 }, ...archivedSessions.value];
-      } else {
-        const moving = archivedSessions.value.find(item => item.id === id);
-        archivedSessions.value = archivedSessions.value.filter(item => item.id !== id);
-        if (moving) sessions.value = [{ ...moving, archived: 0 }, ...sessions.value];
+      const group = sessionGroups.value[wid];
+      if (group && archived) {
+        const moving = group.active.find(item => item.id === id);
+        group.active = group.active.filter(item => item.id !== id);
+        if (moving) group.archived = [{ ...moving, archived: 1 }, ...group.archived];
+      } else if (group) {
+        const moving = group.archived.find(item => item.id === id);
+        group.archived = group.archived.filter(item => item.id !== id);
+        if (moving) group.active = [{ ...moving, archived: 0 }, ...group.active];
       }
       // 归档 / 恢复当前会话后，始终落在一个可见的会话上。
-      if (sessionId.value === id && archived === false) await selectSession(id);
-      else if (sessionId.value === id) await selectSession(sessions.value[0]?.id ?? '');
+      if (workspaceId.value === wid && sessionId.value === id) {
+        await selectSession(archived ? sessions.value[0]?.id ?? '' : id);
+      }
     });
   }
 
-  async function deleteSession(id: string): Promise<void> {
+  async function deleteSession(id: string, wid = workspaceId.value): Promise<void> {
     await attempt(async () => {
       await sessionMutation(`/v1/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      const wasCurrent = sessionId.value === id;
-      sessions.value = sessions.value.filter(item => item.id !== id);
-      archivedSessions.value = archivedSessions.value.filter(item => item.id !== id);
+      const wasCurrent = workspaceId.value === wid && sessionId.value === id;
+      const group = sessionGroups.value[wid];
+      if (group) {
+        group.active = group.active.filter(item => item.id !== id);
+        group.archived = group.archived.filter(item => item.id !== id);
+      }
       if (wasCurrent) await selectSession(sessions.value[0]?.id ?? '');
     });
   }
@@ -345,13 +475,14 @@ export const useChat = defineStore('chat', () => {
     await attempt(async () => {
       const input = text.trim();
       if (!input) return;
-      if (!workspaceId.value) throw new ApiError('请先添加并选择工作区。');
+      if (temporary.value) { await sendTemporary(input); return; }
       if (!sessionId.value) await newSession();
       const active = sessions.value.find(item => item.id === sessionId.value);
 
       const submission = await request<Submission>('/v1/runs', {
         method: 'POST',
-        body: JSON.stringify({ input, workspace_id: workspaceId.value, conversation_id: sessionId.value }),
+        body: JSON.stringify({ input, workspace_id: workspaceId.value || undefined, conversation_id: sessionId.value,
+          ...(selectedSkills.value.length ? { skill_ids: selectedSkills.value } : {}) }),
       });
 
       // 会话标题跟着第一条指令走，否则侧栏会堆满同名的「新任务」。
@@ -423,6 +554,7 @@ export const useChat = defineStore('chat', () => {
       turn.blocks = rebuilt.blocks;
       turn.status = rebuilt.status;
       turn.tokens = rebuilt.tokens;
+      turn.metrics = rebuilt.metrics;
       streamDegraded.value = true;
     }
     if (!ACTIVE_RUN_STATUSES.has(run.status)) {
@@ -489,6 +621,11 @@ export const useChat = defineStore('chat', () => {
         return;
       }
       case 'model.end': {
+        const metrics = readMetrics(event.metrics);
+        if (metrics) {
+          turn.metrics ??= {};
+          turn.metrics[String(event.step ?? Object.keys(turn.metrics).length + 1)] = metrics;
+        }
         const text = typeof event.text === 'string' ? event.text : '';
         const calls = Array.isArray(event.tool_calls) ? event.tool_calls : [];
         const block = lastTextBlock(turn);
@@ -613,7 +750,9 @@ export const useChat = defineStore('chat', () => {
   }
 
   return {
+    temporary, selectedSkills, skills, loadSkills, beginTemporary, endTemporary,
     workspaces, workspaceId, workspace, sessions, archivedSessions, sessionId, session, turns,
+    sessionGroups, projectErrors, projectLoading, loadWorkspaceSessions,
     connected, busy, error, streamDegraded, activeRunId, running,
     load, selectWorkspace, selectSession, loadTurns, createWorkspace,
     newSession, renameSession, archiveSession, deleteSession, send, approve, reject, cancel, attempt,
