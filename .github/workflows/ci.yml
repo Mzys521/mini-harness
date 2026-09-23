@@ -10,8 +10,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # chromadb>=1.0 与 mcp>=2 要求 3.12+；3.11 仍可用于库本身与 [server] 路径。
-        python-version: ["3.12", "3.13"]
+        # 保留轻量 Core 路径，同时在 3.12 安装全部可选依赖并运行真实集成测试。
+        include:
+          - python-version: "3.12"
+            extras: "server,dev"
+          - python-version: "3.13"
+            extras: "server,dev"
+          - python-version: "3.12"
+            extras: "all,dev"
 
     steps:
       - uses: actions/checkout@v4
@@ -22,7 +28,11 @@ jobs:
           cache: pip
 
       - name: Install
-        run: python -m pip install -e ".[server,dev]"
+        run: python -m pip install -e ".[${{ matrix.extras }}]"
+
+      - name: Verify optional integrations are installed
+        if: matrix.extras == 'all,dev'
+        run: python -c "import chromadb, mcp"
 
       - name: Compile
         run: python -m compileall -q harness tests
